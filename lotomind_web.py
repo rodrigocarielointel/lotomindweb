@@ -390,8 +390,8 @@ elif menu == "Meus Palpites":
             
             if dados:
                 for sorteio in dados:
-                    if str(sorteio['concurso']) == str(p['concurso']):
-                    if str(sorteio['concurso']) == str(p.get('concurso')):
+                 if str(sorteio['concurso']) == str(p['concurso']):
+                  if str(sorteio['concurso']) == str(p.get('concurso')):
                         sorteados = [int(x) for x in (sorteio.get('dezenas') or sorteio.get('listaDezenas'))]
                         acertos = len(set(p['numeros']) & set(sorteados))
                         status = f"{acertos} Acertos"
