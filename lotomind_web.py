@@ -317,10 +317,69 @@ elif menu == "Meus Palpites":
     if not palpites:
         st.info("Você ainda não salvou nenhum palpite.")
     else:
-        if st.button("Limpar Histórico", type="secondary"):
-            salvar_palpites([])
-            st.rerun()
+        # --- CÁLCULO DAS ESTATÍSTICAS ---
+        lista_acertos = []
+        contagem_faixas = Counter()
+
+        if dados:
+            for p in palpites:
+                for sorteio in dados:
+                    if str(sorteio['concurso']) == str(p.get('concurso')):
+                        sorteados = [int(x) for x in (sorteio.get('dezenas') or sorteio.get('listaDezenas'))]
+                        acertos = len(set(p['numeros']) & set(sorteados))
+                        lista_acertos.append(acertos)
+                        contagem_faixas.update([acertos])
+                        break
         
+        # --- EXIBIÇÃO DAS ESTATÍSTICAS ---
+        st.subheader("📊 Desempenho dos Palpites")
+        with st.container(border=True):
+            if not lista_acertos:
+                st.warning("Nenhum palpite conferido ainda. Aguardando novos sorteios.")
+            else:
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Palpites Salvos", f"{len(palpites)}")
+                col2.metric("Média Acertos", f"{sum(lista_acertos) / len(lista_acertos):.2f}")
+                col3.metric("Mín. Acertos", f"{min(lista_acertos)}")
+                col4.metric("Máx. Acertos", f"{max(lista_acertos)}")
+
+                st.divider()
+                
+                st.write("**Resumo de Pontuações (Jogos Conferidos):**")
+                
+                abaixo_9 = sum(contagem_faixas[i] for i in range(10))
+                
+                c1, c2 = st.columns(2)
+                c1.markdown(f"""
+                - **15 acertos:** `{contagem_faixas[15]}`
+                - **14 acertos:** `{contagem_faixas[14]}`
+                - **13 acertos:** `{contagem_faixas[13]}`
+                - **12 acertos:** `{contagem_faixas[12]}`
+                """)
+                c2.markdown(f"""
+                - **11 acertos:** `{contagem_faixas[11]}`
+                - **10 acertos:** `{contagem_faixas[10]}`
+                - **9 ou menos:** `{abaixo_9}`
+                """)
+
+        st.divider()
+
+        # --- BOTÃO WHATSAPP ---
+        if ultimo_resultado:
+            prox_concurso_num = ultimo_resultado.get('proximoConcurso')
+            palpites_proximo_sorteio = [p for p in palpites if str(p.get('concurso')) == str(prox_concurso_num)]
+            
+            if palpites_proximo_sorteio:
+                texto_wpp = f"🍀 *Meus Palpites Lotomind para o Concurso {prox_concurso_num}*\n\n"
+                for i, p in enumerate(palpites_proximo_sorteio):
+                    nums_str = " ".join([f"{n:02d}" for n in p['numeros']])
+                    texto_wpp += f"*{i+1}º Jogo:*\n`{nums_str}`\n\n"
+                
+                link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
+                st.link_button("📱 Compartilhar Palpites do Próximo Sorteio", link_wpp, use_container_width=True)
+
+        # --- LISTA DE PALPITES INDIVIDUAIS ---
+        st.subheader("Seus Jogos Salvos")
         for p in reversed(palpites):
             acertos = 0
             status = "Aguardando..."
@@ -328,7 +387,7 @@ elif menu == "Meus Palpites":
             
             if dados:
                 for sorteio in dados:
-                    if str(sorteio['concurso']) == str(p['concurso']):
+                    if str(sorteio['concurso']) == str(p.get('concurso')):
                         sorteados = [int(x) for x in (sorteio.get('dezenas') or sorteio.get('listaDezenas'))]
                         acertos = len(set(p['numeros']) & set(sorteados))
                         status = f"{acertos} Acertos"
@@ -339,6 +398,10 @@ elif menu == "Meus Palpites":
                 st.write(f"**Seus Números:** {', '.join([f'{n:02d}' for n in p['numeros']])}")
                 if status != "Aguardando...":
                     st.markdown(f"Resultado: :{cor_status}[{status}]")
+        
+        if st.button("Limpar Histórico", type="secondary", use_container_width=True):
+            salvar_palpites([])
+            st.rerun()
 
 # --- TELA: ESTATÍSTICAS ---
 elif menu == "Estatísticas":
