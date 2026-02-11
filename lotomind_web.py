@@ -225,7 +225,7 @@ if st.session_state.get("menu_changed", False):
 
 # --- TELA: INÍCIO ---
 if menu == "Início":
-    st.title("Lotofácil Master 🍀")
+    st.title("LotoMind 🍀")
     
     if ultimo_resultado:
         # --- SEÇÃO 1: PRÓXIMO CONCURSO ---
@@ -317,6 +317,9 @@ elif menu == "Meus Palpites":
     if not palpites:
         st.info("Você ainda não salvou nenhum palpite.")
     else:
+        if st.button("Limpar Histórico", type="secondary"):
+            salvar_palpites([])
+            st.rerun()
         # --- CÁLCULO DAS ESTATÍSTICAS ---
         lista_acertos = []
         contagem_faixas = Counter()
@@ -387,6 +390,7 @@ elif menu == "Meus Palpites":
             
             if dados:
                 for sorteio in dados:
+                    if str(sorteio['concurso']) == str(p['concurso']):
                     if str(sorteio['concurso']) == str(p.get('concurso')):
                         sorteados = [int(x) for x in (sorteio.get('dezenas') or sorteio.get('listaDezenas'))]
                         acertos = len(set(p['numeros']) & set(sorteados))
