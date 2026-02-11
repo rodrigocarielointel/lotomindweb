@@ -228,60 +228,86 @@ if menu == "Início":
     st.title("Lotofácil Master 🍀")
     
     if ultimo_resultado:
-        # Card de Informações do Último Sorteio
+        # --- SEÇÃO 1: PRÓXIMO CONCURSO ---
+        st.subheader("🎯 Próximo Concurso")
         with st.container(border=True):
-            c1, c2 = st.columns(2)
-            c1.metric("Último Concurso", f"{ultimo_resultado['concurso']}")
-            c1.caption(f"Data: {ultimo_resultado['data']}")
-            
-            valor = ultimo_resultado.get('valorEstimadoProximoConcurso', 0)
-            c2.metric("Prêmio Estimado", f"R$ {valor:,.2f}")
-            c2.caption(f"Próx: {ultimo_resultado['proximoConcurso']}")
-            
-            dezenas = ultimo_resultado.get('dezenas') or ultimo_resultado.get('listaDezenas')
-            st.write("**Dezenas Sorteadas:**")
-            # Exibe bolinhas coloridas com quebra de linha a cada 5
-            html_bolas_list = []
-            for i, d in enumerate(dezenas):
-                html_bolas_list.append(f"<span style='display:inline-block; text-align:center; background-color:#4b0082; color:white; padding: 6px 0; width: 36px; height: 36px; line-height: 24px; border-radius:50%; margin:3px; font-weight:bold; font-size: 14px;'>{d}</span>")
-                if (i + 1) % 5 == 0 and (i + 1) < len(dezenas):
-                    html_bolas_list.append("<br>")
-            
-            html_bolas = "".join(html_bolas_list)
-            st.markdown(f"<div style='text-align: center;'>{html_bolas}</div>", unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
 
+            prox_concurso = ultimo_resultado.get('proximoConcurso')
+            c1.metric("Concurso", prox_concurso if prox_concurso else "Aguardando")
+
+            prox_data = ultimo_resultado.get('dataProximoConcurso')
+            c2.metric("Data", prox_data if prox_data else "Aguardando")
+            
+            valor_estimado = ultimo_resultado.get('valorEstimadoProximoConcurso', 0)
+            c3.metric("Prêmio Estimado", f"R$ {valor_estimado:,.2f}")
+
+    # --- SEÇÃO 2: GERADOR DE PALPITES ---
     st.divider()
     st.subheader("Gerador de Jogos")
 
     if st.button("🎲 GERAR NOVO PALPITE", type="primary", use_container_width=True):
-        jogo, msg = gerar_palpite_logica(dados, ultimo_resultado)
-        st.session_state['palpite_atual'] = jogo
-        st.session_state['msg_palpite'] = msg
+        if dados and ultimo_resultado:
+            jogo, msg = gerar_palpite_logica(dados, ultimo_resultado)
+            st.session_state['palpite_atual'] = jogo
+            st.session_state['msg_palpite'] = msg
+        else:
+            st.error("Não foi possível carregar os dados para gerar um palpite.")
 
     if st.session_state['palpite_atual']:
         jogo = st.session_state['palpite_atual']
         
-        # Exibe o jogo gerado grande
         st.markdown(f"<h2 style='text-align: center; color: #4b0082;'>{' '.join([f'{n:02d}' for n in jogo])}</h2>", unsafe_allow_html=True)
         st.info(st.session_state['msg_palpite'])
 
         col_a, col_b = st.columns(2)
         if col_a.button("💾 Salvar Palpite"):
             palpites = carregar_palpites()
-            novo = {
-                "concurso": ultimo_resultado['proximoConcurso'],
-                "data": ultimo_resultado['dataProximoSorteio'],
-                "numeros": jogo
-            }
-            palpites.append(novo)
-            salvar_palpites(palpites)
-            st.toast("Palpite salvo com sucesso!", icon="✅")
+            if ultimo_resultado:
+                novo = {
+                    "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
+                    "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
+                    "numeros": jogo
+                }
+                palpites.append(novo)
+                salvar_palpites(palpites)
+                st.toast("Palpite salvo com sucesso!", icon="✅")
 
-        # Botão WhatsApp
-        nums_str = " ".join([f"{n:02d}" for n in jogo])
-        texto_wpp = f"🍀 Sugestão Lotomind\nConcurso: {ultimo_resultado['proximoConcurso']}\nNúmeros: {nums_str}"
-        link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
-        col_b.link_button("📱 Compartilhar WhatsApp", link_wpp)
+        if ultimo_resultado:
+            nums_str = " ".join([f"{n:02d}" for n in jogo])
+            texto_wpp = f"🍀 Sugestão Lotomind\nConcurso: {ultimo_resultado.get('proximoConcurso', 'N/A')}\nNúmeros: {nums_str}"
+            link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
+            col_b.link_button("📱 Compartilhar WhatsApp", link_wpp)
+
+    # --- SEÇÃO 3: ÚLTIMO SORTEIO ---
+    if ultimo_resultado:
+        st.divider()
+        st.subheader("Último Sorteio Realizado")
+        with st.container(border=True):
+            premiacao_15 = ultimo_resultado.get('premiacoes', [{}])[0]
+            ganhadores = premiacao_15.get('ganhadores') # Pode ser None
+            valor_premio = premiacao_15.get('valorPremio', 0)
+
+            # Layout com 3 colunas para melhor visualização
+            c1, c2, c3 = st.columns(3)
+
+            c1.metric("Concurso", f"{ultimo_resultado.get('concurso', 'N/A')}")
+            c1.caption(f"Data: {ultimo_resultado.get('data', 'N/A')}")
+            
+            c2.metric("Ganhadores (15 pts)", f"{ganhadores}" if ganhadores is not None else "N/A")
+            c3.metric("Prêmio Total", f"R$ {valor_premio:,.2f}")
+            
+            st.write("**Dezenas Sorteadas:**")
+            dezenas = ultimo_resultado.get('dezenas') or ultimo_resultado.get('listaDezenas')
+            if dezenas:
+                html_bolas_list = []
+                for i, d in enumerate(dezenas):
+                    html_bolas_list.append(f"<span style='display:inline-block; text-align:center; background-color:#4b0082; color:white; padding: 6px 0; width: 36px; height: 36px; line-height: 24px; border-radius:50%; margin:3px; font-weight:bold; font-size: 14px;'>{d}</span>")
+                    if (i + 1) % 5 == 0 and (i + 1) < len(dezenas):
+                        html_bolas_list.append("<br>")
+                
+                html_bolas = "".join(html_bolas_list)
+                st.markdown(f"<div style='text-align: center;'>{html_bolas}</div>", unsafe_allow_html=True)
 
 # --- TELA: MEUS PALPITES ---
 elif menu == "Meus Palpites":
