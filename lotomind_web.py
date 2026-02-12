@@ -88,7 +88,7 @@ def carregar_dados():
 def gerar_palpite_logica(historico, ultimo_resultado):
     """Lógica original do Lotomind adaptada para função pura"""
     if not historico or not ultimo_resultado:
-        return None, "Dados insuficientes para gerar palpite."
+        return None, 0, "Dados insuficientes para gerar palpite."
 
     ult_60 = historico[:60]
     ult_5 = historico[:5]
@@ -134,11 +134,13 @@ def gerar_palpite_logica(historico, ultimo_resultado):
         # Regras Imutáveis
         r_count = len([n for n in jogo if n in dezenas_ultimo])
         if r_count not in [8, 9]: continue
-
+        
+        # Regra: 8 impares e 7 pares ou 8 pares e 7 impares (obrigatorio)
         pares = len([n for n in jogo if n % 2 == 0])
         impares = 15 - pares
         if not ((impares == 8 and pares == 7) or (impares == 7 and pares == 8)): continue
-
+        
+        # Regra: numero que tiver atrasado a 3 ou + sorteios (obrigatorio)
         if not all(n in jogo for n in obrigatorios_atraso): continue
 
         # Regras Flexíveis
@@ -149,6 +151,7 @@ def gerar_palpite_logica(historico, ultimo_resultado):
         regras_extras = [t_ok, b_ok, f_ok]
         acertos_regras = regras_extras.count(True)
 
+        # Base 70% (pois atendeu as obrigatórias) + 10% para cada regra flexível atendida
         if acertos_regras == 3 or tentativas > 4500:
             confianca = 100 if acertos_regras == 3 else int(70 + (acertos_regras * 10))
             motivos = []
@@ -157,9 +160,9 @@ def gerar_palpite_logica(historico, ultimo_resultado):
             if not f_ok: motivos.append("Contém Flow")
             
             msg = "Todas as métricas atendidas!" if not motivos else f"Ajuste: {', '.join(motivos)}"
-            return jogo, f"Confiança: {confianca}% | {msg}"
+            return jogo, confianca, f"Confiança: {confianca}% | {msg}"
 
-    return jogo, "Gerado por exaustão (Confiança Baixa)"
+    return jogo, 60, "Gerado por exaustão (Confiança Baixa)"
 
 # --- INTERFACE DO APP WEB ---
 
@@ -170,6 +173,8 @@ if 'palpite_atual' not in st.session_state:
     st.session_state['palpite_atual'] = None
 if 'msg_palpite' not in st.session_state:
     st.session_state['msg_palpite'] = ""
+if 'confianca_atual' not in st.session_state:
+    st.session_state['confianca_atual'] = 0
 
 # Sidebar (Menu Lateral)
 with st.sidebar:
@@ -248,9 +253,10 @@ if menu == "Início":
 
     if st.button("🎲 GERAR NOVO PALPITE", type="primary", use_container_width=True):
         if dados and ultimo_resultado:
-            jogo, msg = gerar_palpite_logica(dados, ultimo_resultado)
+            jogo, confianca, msg = gerar_palpite_logica(dados, ultimo_resultado)
             st.session_state['palpite_atual'] = jogo
             st.session_state['msg_palpite'] = msg
+            st.session_state['confianca_atual'] = confianca
         else:
             st.error("Não foi possível carregar os dados para gerar um palpite.")
 
@@ -267,7 +273,8 @@ if menu == "Início":
                 novo = {
                     "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
                     "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
-                    "numeros": jogo
+                    "numeros": jogo,
+                    "confianca": st.session_state.get('confianca_atual', 0)
                 }
                 palpites.append(novo)
                 salvar_palpites(palpites)
@@ -387,6 +394,7 @@ elif menu == "Meus Palpites":
             acertos = 0
             status = "Aguardando..."
             cor_status = "grey"
+            confianca_salva = p.get('confianca', 'N/A')
             
             if dados:
                 for sorteio in dados:
@@ -398,7 +406,7 @@ elif menu == "Meus Palpites":
                         cor_status = "green" if acertos >= 11 else "red"
                         break
             
-            with st.expander(f"Concurso {p['concurso']} | {status}"):
+            with st.expander(f"Concurso {p['concurso']} | {status} | Confiança: {confianca_salva}%"):
                 st.write(f"**Seus Números:** {', '.join([f'{n:02d}' for n in p['numeros']])}")
                 if status != "Aguardando...":
                     st.markdown(f"Resultado: :{cor_status}[{status}]")
