@@ -390,7 +390,9 @@ elif menu == "Meus Palpites":
 
         # --- LISTA DE PALPITES INDIVIDUAIS ---
         st.subheader("Seus Jogos Salvos")
-        for p in reversed(palpites):
+        # Itera de trás para frente para poder remover itens sem bagunçar os índices
+        for i in range(len(palpites) - 1, -1, -1):
+            p = palpites[i]
             acertos = 0
             status = "Aguardando..."
             cor_status = "grey"
@@ -398,22 +400,24 @@ elif menu == "Meus Palpites":
             
             if dados:
                 for sorteio in dados:
-                 if str(sorteio['concurso']) == str(p['concurso']):
-                  if str(sorteio['concurso']) == str(p.get('concurso')):
+                    if str(sorteio['concurso']) == str(p.get('concurso')):
                         sorteados = [int(x) for x in (sorteio.get('dezenas') or sorteio.get('listaDezenas'))]
                         acertos = len(set(p['numeros']) & set(sorteados))
                         status = f"{acertos} Acertos"
                         cor_status = "green" if acertos >= 11 else "red"
                         break
             
-            with st.expander(f"Concurso {p['concurso']} | {status} | Confiança: {confianca_salva}%"):
+            col_exp, col_del = st.columns([0.9, 0.1])
+
+            with col_exp.expander(f"Concurso {p['concurso']} | {status} | Confiança: {confianca_salva}%"):
                 st.write(f"**Seus Números:** {', '.join([f'{n:02d}' for n in p['numeros']])}")
                 if status != "Aguardando...":
                     st.markdown(f"Resultado: :{cor_status}[{status}]")
-        
-        if st.button("Limpar Histórico", type="secondary", use_container_width=True):
-            salvar_palpites([])
-            st.rerun()
+            
+            if col_del.button("🗑️", key=f"del_{i}", help="Excluir este palpite"):
+                palpites.pop(i)
+                salvar_palpites(palpites)
+                st.rerun()
 
 # --- TELA: ESTATÍSTICAS ---
 elif menu == "Estatísticas":
