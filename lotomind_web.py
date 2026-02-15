@@ -91,7 +91,6 @@ def gerar_palpite_logica(historico, ultimo_resultado):
         return None, 0, "Dados insuficientes para gerar palpite."
 
     ult_60 = historico[:60]
-    ult_5 = historico[:5]
     ult_3 = historico[:3]
     
     dezenas_ultimo = [int(n) for n in (ultimo_resultado.get('dezenas') or ultimo_resultado.get('listaDezenas'))]
@@ -103,16 +102,6 @@ def gerar_palpite_logica(historico, ultimo_resultado):
     
     top_10 = [n for n, c in contagem.most_common(10)]
     bottom_6 = [n for n, c in contagem.most_common()[-6:]]
-
-    # Flow (Números quentes para excluir)
-    excluir_flow = []
-    for n in range(1, 26):
-        count_seq = 0
-        for s in ult_5:
-            res_sorteio = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
-            if n in res_sorteio: count_seq += 1
-            else: break 
-        if count_seq >= 4: excluir_flow.append(n)
 
     # Atrasados (Obrigatórios pela lógica original)
     obrigatorios_atraso = []
@@ -146,18 +135,16 @@ def gerar_palpite_logica(historico, ultimo_resultado):
         # Regras Flexíveis
         t_ok = 5 <= len([n for n in jogo if n in top_10]) <= 7
         b_ok = 3 <= len([n for n in jogo if n in bottom_6]) <= 4
-        f_ok = not any(n in jogo for n in excluir_flow)
 
-        regras_extras = [t_ok, b_ok, f_ok]
+        regras_extras = [t_ok, b_ok]
         acertos_regras = regras_extras.count(True)
 
-        # Base 70% (pois atendeu as obrigatórias) + 10% para cada regra flexível atendida
-        if acertos_regras == 3 or tentativas > 4500:
-            confianca = 100 if acertos_regras == 3 else int(70 + (acertos_regras * 10))
+        # Base 70% (pois atendeu as obrigatórias) + 15% para cada regra flexível atendida
+        if acertos_regras == 2 or tentativas > 4500:
+            confianca = 100 if acertos_regras == 2 else int(70 + (acertos_regras * 15))
             motivos = []
             if not t_ok: motivos.append("Top10 fora")
             if not b_ok: motivos.append("Bottom6 fora")
-            if not f_ok: motivos.append("Contém Flow")
             
             msg = "Todas as métricas atendidas!" if not motivos else f"Ajuste: {', '.join(motivos)}"
             return jogo, confianca, f"Confiança: {confianca}% | {msg}"
