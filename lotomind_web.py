@@ -5,6 +5,7 @@ import json
 import os
 import urllib.parse
 from collections import Counter
+from supabase import create_client, Client
 
 # --- CONFIGURAÇÕES ---
 ARQUIVO_CACHE = "loto_completo_cache.json"
@@ -50,7 +51,72 @@ st.markdown("""
 
 # --- FUNÇÕES DE DADOS E LÓGICA (Mantendo a original) ---
 
-def carregar_palpites():
+# Conexão com Supabase
+@st.cache_resource
+def init_supabase():
+    try:
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        print(f"⚠️ Erro ao conectar Supabase: {e}")
+        return None
+
+supabase_client = init_supabase()
+
+# --- FUNÇÕES DE AUTENTICAÇÃO (SISTEMA PRÓPRIO) ---
+def get_user_db(username):
+    if not supabase_client: return None
+    try:
+        # Busca usuário na tabela 'users'
+        response = supabase_client.table("users").select("*").eq("username", username).execute()
+        if response.data: return response.data[0]
+    except: pass
+    return None
+
+def register_user_db(username, email, password):
+    if not supabase_client: return False, "Sem conexão com banco."
+    if not username or not email or not password: return False, "Preencha todos os campos."
+    if not password.isnumeric(): return False, "A senha deve ser numérica."
+    
+    if get_user_db(username): return False, "Nome de usuário já existe."
+    
+    try:
+        data = {"username": username, "email": email, "password": password}
+        supabase_client.table("users").insert(data).execute()
+        return True, "Cadastro realizado! Faça login."
+    except Exception as e: return False, f"Erro: {e}"
+
+def login_user_db(username, password):
+    user = get_user_db(username)
+    if user:
+        # Verifica senha (armazenada simples conforme solicitado)
+        if str(user.get('password')) == str(password):
+            return user
+    return None
+
+def reset_password_db(username, email, new_password):
+    user = get_user_db(username)
+    if user and user.get('email') == email:
+        if not new_password.isnumeric(): return False, "A nova senha deve ser numérica."
+        try:
+            supabase_client.table("users").update({"password": new_password}).eq("username", username).execute()
+            return True, "Senha alterada com sucesso!"
+        except Exception as e: return False, f"Erro: {e}"
+    return False, "Usuário ou Email incorretos."
+# -------------------------------------------------
+
+def carregar_palpites(user_email=None):
+    # Se tiver Supabase e usuário logado, busca do banco
+    if supabase_client and user_email:
+        try:
+            response = supabase_client.table("palpites").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
+            return response.data
+        except Exception as e:
+            st.error(f"Erro ao carregar da nuvem: {e}")
+            return []
+
+    # Fallback para local (se não tiver internet ou login)
     if os.path.exists(ARQUIVO_PALPITES):
         try:
             with open(ARQUIVO_PALPITES, "r") as f:
@@ -59,9 +125,41 @@ def carregar_palpites():
             return []
     return []
 
-def salvar_palpites(palpites):
+def salvar_novo_palpite(novo_palpite, user_email=None):
+    # Se tiver Supabase, salva na nuvem
+    if supabase_client and user_email:
+        # Adiciona o email ao objeto antes de salvar
+        novo_palpite['user_email'] = user_email
+        try:
+            supabase_client.table("palpites").insert(novo_palpite).execute()
+            return True
+        except Exception as e:
+            st.error(f"Erro ao salvar na nuvem: {e}")
+            return False
+    
+    # Fallback Local (Modo antigo)
+    palpites_locais = carregar_palpites()
+    palpites_locais.append(novo_palpite)
     with open(ARQUIVO_PALPITES, "w") as f:
-        json.dump(palpites, f, indent=4)
+        json.dump(palpites_locais, f, indent=4)
+    return True
+
+def excluir_palpite(palpite_id, user_email=None, index_local=None):
+    if supabase_client and user_email and palpite_id:
+        try:
+            supabase_client.table("palpites").delete().eq("id", palpite_id).execute()
+            return True
+        except: return False
+    
+    # Fallback Local
+    if index_local is not None:
+        p = carregar_palpites()
+        if 0 <= index_local < len(p):
+            p.pop(index_local)
+            with open(ARQUIVO_PALPITES, "w") as f:
+                json.dump(p, f, indent=4)
+            return True
+    return False
 
 def buscar_dados_api():
     try:
@@ -136,12 +234,13 @@ def gerar_palpite_logica(historico, ultimo_resultado):
         t_ok = 5 <= len([n for n in jogo if n in top_10]) <= 7
         b_ok = 3 <= len([n for n in jogo if n in bottom_6]) <= 4
 
-        regras_extras = [t_ok, b_ok]
-        acertos_regras = regras_extras.count(True)
+        # Cálculo de Confiança (3 obrigatórias = 60%, + 20% cada flexível)
+        confianca = 60
+        if t_ok: confianca += 20
+        if b_ok: confianca += 20
 
-        # Base 70% (pois atendeu as obrigatórias) + 15% para cada regra flexível atendida
-        if acertos_regras == 2 or tentativas > 4500:
-            confianca = 100 if acertos_regras == 2 else int(70 + (acertos_regras * 15))
+        # Se atingir 100% ou estourar o limite de tentativas
+        if confianca == 100 or tentativas > 4500:
             motivos = []
             if not t_ok: motivos.append("Top10 fora")
             if not b_ok: motivos.append("Bottom6 fora")
@@ -163,6 +262,8 @@ if 'msg_palpite' not in st.session_state:
 if 'confianca_atual' not in st.session_state:
     st.session_state['confianca_atual'] = 0
 
+# --- SIDEBAR & LOGIN ---
+
 # Sidebar (Menu Lateral)
 with st.sidebar:
     # Tenta achar o logo na pasta atual ou na anterior
@@ -172,6 +273,59 @@ with st.sidebar:
         st.image("../logo.png", width=150)
     else:
         st.title("Lotomind")
+    
+    # --- ÁREA DE LOGIN ---
+    st.markdown("### 👤 Sua Conta")
+    
+    if 'logged_user' not in st.session_state:
+        st.session_state['logged_user'] = None
+
+    if supabase_client:
+        if st.session_state['logged_user']:
+            user = st.session_state['logged_user']
+            st.success(f"Olá, {user['username']}!")
+            st.caption(f"Email: {user['email']}")
+            if st.button("Sair", key="btn_logout"):
+                st.session_state['logged_user'] = None
+                st.rerun()
+            user_email = user['email'] # Usa o email do cadastro para vincular os palpites
+        else:
+            tab_login, tab_cad, tab_rec = st.tabs(["Login", "Cadastro", "Ajuda"])
+            
+            with tab_login:
+                l_user = st.text_input("Usuário", key="l_u")
+                l_pass = st.text_input("Senha (Numérica)", type="password", key="l_p")
+                if st.button("Entrar", key="btn_login"):
+                    u = login_user_db(l_user, l_pass)
+                    if u:
+                        st.session_state['logged_user'] = u
+                        st.rerun()
+                    else: st.error("Dados incorretos.")
+            
+            with tab_cad:
+                c_user = st.text_input("Criar Usuário", key="c_u")
+                c_email = st.text_input("Seu Email", key="c_e")
+                c_pass = st.text_input("Senha (Numérica)", type="password", key="c_p")
+                if st.button("Cadastrar", key="btn_cad"):
+                    ok, msg = register_user_db(c_user, c_email, c_pass)
+                    if ok: st.success(msg)
+                    else: st.error(msg)
+            
+            with tab_rec:
+                st.caption("Recuperar Acesso:")
+                r_user = st.text_input("Usuário", key="r_u")
+                r_email = st.text_input("Email", key="r_e")
+                r_pass = st.text_input("Nova Senha", type="password", key="r_p")
+                if st.button("Alterar Senha", key="btn_reset"):
+                    ok, msg = reset_password_db(r_user, r_email, r_pass)
+                    if ok: st.success(msg)
+                    else: st.error(msg)
+            
+            user_email = None
+    else:
+        st.error("Supabase não configurado. Usando modo Offline (Local).")
+        user_email = None
+    # ---------------------
     
     def on_menu_change():
         st.session_state.menu_changed = True
@@ -255,7 +409,6 @@ if menu == "Início":
 
         col_a, col_b = st.columns(2)
         if col_a.button("💾 Salvar Palpite"):
-            palpites = carregar_palpites()
             if ultimo_resultado:
                 novo = {
                     "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
@@ -263,9 +416,8 @@ if menu == "Início":
                     "numeros": jogo,
                     "confianca": st.session_state.get('confianca_atual', 0)
                 }
-                palpites.append(novo)
-                salvar_palpites(palpites)
-                st.toast("Palpite salvo com sucesso!", icon="✅")
+                if salvar_novo_palpite(novo, user_email):
+                    st.toast("Palpite salvo com sucesso!", icon="✅")
 
         if ultimo_resultado:
             nums_str = " ".join([f"{n:02d}" for n in jogo])
@@ -306,13 +458,13 @@ if menu == "Início":
 # --- TELA: MEUS PALPITES ---
 elif menu == "Meus Palpites":
     st.title("Histórico de Palpites")
-    palpites = carregar_palpites()
+    palpites = carregar_palpites(user_email)
 
     if not palpites:
-        st.info("Você ainda não salvou nenhum palpite.")
+        st.info("Nenhum palpite salvo nesta conta.")
     else:
-        if st.button("Limpar Histórico", type="secondary"):
-            salvar_palpites([])
+        # Botão de limpar tudo desativado na nuvem por segurança, ou implemente delete all
+        if st.button("🔄 Atualizar Lista"):
             st.rerun()
         # --- CÁLCULO DAS ESTATÍSTICAS ---
         lista_acertos = []
@@ -377,13 +529,13 @@ elif menu == "Meus Palpites":
 
         # --- LISTA DE PALPITES INDIVIDUAIS ---
         st.subheader("Seus Jogos Salvos")
-        # Itera de trás para frente para poder remover itens sem bagunçar os índices
-        for i in range(len(palpites) - 1, -1, -1):
-            p = palpites[i]
+        # Se vier do banco, pode não ser uma lista simples, garantimos a iteração
+        for i, p in enumerate(palpites):
             acertos = 0
             status = "Aguardando..."
             cor_status = "grey"
             confianca_salva = p.get('confianca', 'N/A')
+            p_id = p.get('id') # ID do Supabase
             
             if dados:
                 for sorteio in dados:
@@ -402,9 +554,8 @@ elif menu == "Meus Palpites":
                     st.markdown(f"Resultado: :{cor_status}[{status}]")
             
             if col_del.button("🗑️", key=f"del_{i}", help="Excluir este palpite"):
-                palpites.pop(i)
-                salvar_palpites(palpites)
-                st.rerun()
+                if excluir_palpite(p_id, user_email, index_local=i):
+                    st.rerun()
 
 # --- TELA: ESTATÍSTICAS ---
 elif menu == "Estatísticas":
