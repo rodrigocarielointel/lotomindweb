@@ -21,44 +21,114 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- DEFINIÇÃO DE VARIÁVEIS DE CORES ---
+# Roxo (3 Tons)
+ROXO_CLARO = "#9370DB"   # MediumPurple
+ROXO_MEDIO = "#4b0082"   # Indigo (Original)
+ROXO_ESCURO = "#2E0050"  # Dark Indigo
+
+# Verde (3 Tons)
+VERDE_CLARO = "#D4EDDA"  # Light Green (Fundo suave)
+VERDE_MEDIO = "#28a745"  # Green (Bootstrap Success)
+VERDE_ESCURO = "#155724" # Dark Green (Texto/Hover)
+
+# --- APLICAÇÃO DAS CORES (SEPARAÇÃO POR CONTEXTO) ---
+# Geral
+VAR_COR_FUNDO_APP = "#ffffff"       # Onde usar: Fundo geral da aplicação
+VAR_COR_TEXTO_PRINCIPAL = "#31333F" # Onde usar: Texto padrão
+
+# Títulos (H1, H2, H3...)
+VAR_COR_TITULOS = ROXO_MEDIO        # Onde usar: Cabeçalhos principais
+
+# Botões (Botão Principal 'Gerar')
+VAR_COR_BOTAO_BG = VERDE_MEDIO      # Onde usar: Fundo do botão principal
+VAR_COR_BOTAO_TXT = "#ffffff"       # Onde usar: Texto do botão principal
+VAR_COR_BOTAO_HOVER = "#218838"     # Onde usar: Cor ao passar o mouse (Verde um pouco mais escuro)
+
+# Sidebar (Barra Lateral)
+VAR_COR_SIDEBAR_TITULOS = ROXO_MEDIO # Onde usar: Títulos dentro da sidebar
+VAR_COR_SIDEBAR_TEXTO = VAR_COR_TEXTO_PRINCIPAL # Onde usar: Texto comum na sidebar
+
+# Mensagem de Confiança (Aviso Específico)
+VAR_COR_MSG_CONFIANCA_BG = VERDE_CLARO  # Onde usar: Fundo da caixa de mensagem de confiança
+VAR_COR_MSG_CONFIANCA_TXT = VERDE_ESCURO # Onde usar: Texto da mensagem de confiança
+VAR_COR_MSG_CONFIANCA_BORDA = VERDE_MEDIO # Onde usar: Borda da caixa de mensagem
+
+# Números do Jogo (Display Grande)
+VAR_COR_NUMEROS_JOGO = ROXO_MEDIO   # Onde usar: Números grandes do palpite gerado
+
+# Bolas do Sorteio (Resultado)
+VAR_COR_BOLAS_SORTEIO_BG = ROXO_MEDIO # Onde usar: Fundo das bolinhas do resultado
+VAR_COR_BOLAS_SORTEIO_TXT = "#ffffff" # Onde usar: Número dentro das bolinhas
+
+# Tela de Login
+VAR_COR_LOGIN_BEMVINDO = ROXO_MEDIO      # Onde usar: Texto "Bem-vindo!"
+VAR_COR_LOGIN_TABS_TEXT = ROXO_MEDIO    # Onde usar: Texto das abas "Entrar", "Criar Conta"
+VAR_COR_LOGIN_LABELS = ROXO_ESCURO # Onde usar: Labels "Usuário", "Senha"
+VAR_COR_LOGIN_BOTAO_BG = ROXO_MEDIO     # Onde usar: Fundo do botão de login/cadastro
+VAR_COR_LOGIN_BOTAO_TXT = "#ffffff"     # Onde usar: Texto do botão de login/cadastro
+VAR_COR_LOGIN_BOTAO_HOVER = ROXO_ESCURO # Onde usar: Hover do botão de login/cadastro
+
 # --- ESTILOS VISUAIS (Fundo Branco + Compacto) ---
-st.markdown("""
+st.markdown(f"""
     <style>
         /* PALETA: Fundo Branco, Texto Escuro, Detalhes em Roxo */
-        .stApp {
-            background-color: #ffffff;
-            color: #31333F;
-        }
+        .stApp {{
+            background-color: {VAR_COR_FUNDO_APP};
+            color: {VAR_COR_TEXTO_PRINCIPAL};
+        }}
         /* Títulos em Roxo da Lotofácil */
-        h1, h2, h3, h4, h5, h6, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-            color: #4b0082 !important;
-        }
+        h1, h2, h3, h4, h5, h6, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
+            color: {VAR_COR_TITULOS} !important;
+        }}
         /* Botão Primário (Gerar Palpite) em VERDE */
-        div[data-testid="stButton"] > button[kind="primary"] {
-            background-color: #28a745 !important;
-            color: white !important;
+        div[data-testid="stButton"] > button[kind="primary"] {{
+            background-color: {VAR_COR_BOTAO_BG} !important;
+            color: {VAR_COR_BOTAO_TXT} !important;
             border: none;
-        }
-        div[data-testid="stButton"] > button[kind="primary"]:hover {
-            background-color: #218838 !important;
-            color: white !important;
-        }
+        }}
+        div[data-testid="stButton"] > button[kind="primary"]:hover {{
+            background-color: {VAR_COR_BOTAO_HOVER} !important;
+            color: {VAR_COR_BOTAO_TXT} !important;
+        }}
+        /* SOBRESCREVE: Botão Primário DENTRO DE FORMS (Login/Cadastro) para Roxo */
+        div[data-testid="stForm"] div[data-testid="stButton"] > button[kind="primary"] {{
+            background-color: {VAR_COR_LOGIN_BOTAO_BG} !important;
+            color: {VAR_COR_LOGIN_BOTAO_TXT} !important;
+        }}
+        div[data-testid="stForm"] div[data-testid="stButton"] > button[kind="primary"]:hover {{
+            background-color: {VAR_COR_LOGIN_BOTAO_HOVER} !important;
+        }}
+        /* Labels de Usuário/Senha na tela de login */
+        div[data-testid="stForm"] label {{
+            color: {VAR_COR_LOGIN_LABELS} !important;
+        }}
+        /* Abas de Login/Navegação */
+        [data-testid="stTabs"] button p {{
+            color: {VAR_COR_LOGIN_TABS_TEXT} !important;
+        }}
         /* Reduzir margens para ficar mais compacto */
-        .block-container {
+        .block-container {{
             padding-top: 1.5rem;
             padding-bottom: 2rem;
-        }
+        }}
+        /* FORÇAR REMOÇÃO DO FUNDO AMARELO (WARNING) OU AZUL (INFO) */
+        div[data-testid="stAlert"] {{
+            background-color: #f9f9f9 !important;
+            border: 1px solid #eeeeee !important;
+            color: {VAR_COR_TEXTO_PRINCIPAL} !important;
+        }}
     </style>
 """, unsafe_allow_html=True)
 
 # --- FUNÇÕES DE DADOS E LÓGICA (Mantendo a original) ---
 
 # Cache do CookieManager para evitar recriação e perda de sessão
-@st.cache_resource
-def get_manager():
-    return CookieManager()
+cookie_manager = CookieManager()
 
-cookie_manager = get_manager()
+if not cookie_manager.ready():
+    st.stop()
+
 
 # Conexão com Supabase
 @st.cache_resource
@@ -302,7 +372,8 @@ if not st.session_state['logged_user']:
         else:
             st.title("Lotomind")
         
-        st.markdown("### Bem-vindo!")
+        # Texto "Bem-vindo!" com a variável de cor
+        st.markdown(f"<h3 style='color:{VAR_COR_LOGIN_BEMVINDO};'>Bem-vindo!</h3>", unsafe_allow_html=True)
         
         tab_login, tab_cadastro = st.tabs(["Entrar", "Criar Conta"])
         
@@ -437,8 +508,16 @@ if menu == "Início":
     if st.session_state['palpite_atual']:
         jogo = st.session_state['palpite_atual']
         
-        st.markdown(f"<h2 style='text-align: center; color: #4b0082;'>{' '.join([f'{n:02d}' for n in jogo])}</h2>", unsafe_allow_html=True)
-        st.info(st.session_state['msg_palpite'])
+        # Exibição dos Números com a variável VAR_COR_NUMEROS_JOGO
+        st.markdown(f"<h2 style='text-align: center; color: {VAR_COR_NUMEROS_JOGO};'>{' '.join([f'{n:02d}' for n in jogo])}</h2>", unsafe_allow_html=True)
+        
+        # Mensagem de Confiança com as variáveis VAR_COR_MSG_CONFIANCA_...
+        st.markdown(f"""
+            <div style='background-color: {VAR_COR_MSG_CONFIANCA_BG}; color: {VAR_COR_MSG_CONFIANCA_TXT}; 
+            padding: 10px; border-radius: 5px; border: 1px solid {VAR_COR_MSG_CONFIANCA_BORDA}; text-align: center; margin-bottom: 10px;'>
+                {st.session_state['msg_palpite']}
+            </div>
+        """, unsafe_allow_html=True)
 
         col_a, col_b = st.columns(2)
         if col_a.button("💾 Salvar Palpite"):
@@ -481,7 +560,8 @@ if menu == "Início":
             if dezenas:
                 html_bolas_list = []
                 for i, d in enumerate(dezenas):
-                    html_bolas_list.append(f"<span style='display:inline-block; text-align:center; background-color:#4b0082; color:white; padding: 6px 0; width: 36px; height: 36px; line-height: 24px; border-radius:50%; margin:3px; font-weight:bold; font-size: 14px;'>{d}</span>")
+                    # Bolas do sorteio usando VAR_COR_BOLAS_SORTEIO_BG e VAR_COR_BOLAS_SORTEIO_TXT
+                    html_bolas_list.append(f"<span style='display:inline-block; text-align:center; background-color:{VAR_COR_BOLAS_SORTEIO_BG}; color:{VAR_COR_BOLAS_SORTEIO_TXT}; padding: 6px 0; width: 36px; height: 36px; line-height: 24px; border-radius:50%; margin:3px; font-weight:bold; font-size: 14px;'>{d}</span>")
                     if (i + 1) % 5 == 0 and (i + 1) < len(dezenas):
                         html_bolas_list.append("<br>")
                 
@@ -494,7 +574,7 @@ elif menu == "Meus Palpites":
     palpites = carregar_palpites(user_email)
 
     if not palpites:
-        st.info("Nenhum palpite salvo nesta conta.")
+        st.markdown("ℹ️ *Nenhum palpite salvo nesta conta.*")
     else:
         # Botão de limpar tudo desativado na nuvem por segurança, ou implemente delete all
         if st.button("🔄 Atualizar Lista"):
@@ -517,7 +597,7 @@ elif menu == "Meus Palpites":
         st.subheader("📊 Desempenho dos Palpites")
         with st.container(border=True):
             if not lista_acertos:
-                st.info("Nenhum palpite conferido ainda. Aguardando novos sorteios.")
+                st.markdown("ℹ️ *Nenhum palpite conferido ainda. Aguardando novos sorteios.*")
             else:
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Palpites Salvos", f"{len(palpites)}")
