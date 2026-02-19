@@ -5,7 +5,9 @@ import json
 import os
 import urllib.parse
 from collections import Counter
+import datetime
 from supabase import create_client, Client
+from streamlit_cookies_manager import CookieManager
 
 # --- CONFIGURAÇÕES ---
 ARQUIVO_CACHE = "loto_completo_cache.json"
@@ -51,6 +53,9 @@ st.markdown("""
 
 # --- FUNÇÕES DE DADOS E LÓGICA (Mantendo a original) ---
 
+# Initialize cookie manager
+cookie_manager = CookieManager()
+
 # Conexão com Supabase
 @st.cache_resource
 def init_supabase():
@@ -63,6 +68,19 @@ def init_supabase():
         return None
 
 supabase_client = init_supabase()
+
+# --- AUTO-LOGIN FROM COOKIE ---
+if 'logged_user' not in st.session_state:
+    st.session_state['logged_user'] = None
+
+if not st.session_state['logged_user']:
+    # O get() precisa ser chamado antes de qualquer outro elemento do Streamlit
+    username_from_cookie = cookie_manager.get('lotomind_user')
+    if username_from_cookie:
+        user_data = get_user_db(username_from_cookie)
+        if user_data:
+            st.session_state['logged_user'] = user_data
+# --------------------------
 
 # --- FUNÇÕES DE AUTENTICAÇÃO (SISTEMA PRÓPRIO) ---
 def get_user_db(username):
@@ -287,6 +305,7 @@ with st.sidebar:
             st.caption(f"Email: {user['email']}")
             if st.button("Sair", key="btn_logout"):
                 st.session_state['logged_user'] = None
+                cookie_manager.delete('lotomind_user')
                 st.rerun()
             user_email = user['email'] # Usa o email do cadastro para vincular os palpites
         else:
@@ -295,10 +314,14 @@ with st.sidebar:
             with tab_login:
                 l_user = st.text_input("Usuário", key="l_u")
                 l_pass = st.text_input("Senha (Numérica)", type="password", key="l_p")
-                if st.button("Entrar", key="btn_login"):
+                permanecer_logado = st.checkbox("Permanecer logado", key="chk_persist")
+                if st.button("Entrar", key="btn_login", type="primary"):
                     u = login_user_db(l_user, l_pass)
                     if u:
                         st.session_state['logged_user'] = u
+                        if permanecer_logado:
+                            # Salva o cookie por 30 dias
+                            cookie_manager.set('lotomind_user', u['username'], expires_at=datetime.datetime.now() + datetime.timedelta(days=30))
                         st.rerun()
                     else: st.error("Dados incorretos.")
             
