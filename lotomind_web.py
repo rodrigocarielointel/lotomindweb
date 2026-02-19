@@ -53,8 +53,12 @@ st.markdown("""
 
 # --- FUNÇÕES DE DADOS E LÓGICA (Mantendo a original) ---
 
-# Initialize cookie manager
-cookie_manager = CookieManager()
+# Cache do CookieManager para evitar recriação e perda de sessão
+@st.cache_resource
+def get_manager():
+    return CookieManager()
+
+cookie_manager = get_manager()
 
 # Conexão com Supabase
 @st.cache_resource
@@ -69,19 +73,6 @@ def init_supabase():
 
 supabase_client = init_supabase()
 
-# --- AUTO-LOGIN FROM COOKIE ---
-if 'logged_user' not in st.session_state:
-    st.session_state['logged_user'] = None
-
-if not st.session_state['logged_user']:
-    # O get() precisa ser chamado antes de qualquer outro elemento do Streamlit
-    username_from_cookie = cookie_manager.get('lotomind_user')
-    if username_from_cookie:
-        user_data = get_user_db(username_from_cookie)
-        if user_data:
-            st.session_state['logged_user'] = user_data
-# --------------------------
-
 # --- FUNÇÕES DE AUTENTICAÇÃO (SISTEMA PRÓPRIO) ---
 def get_user_db(username):
     if not supabase_client: return None
@@ -95,7 +86,6 @@ def get_user_db(username):
 def register_user_db(username, email, password):
     if not supabase_client: return False, "Sem conexão com banco."
     if not username or not email or not password: return False, "Preencha todos os campos."
-    if not password.isnumeric(): return False, "A senha deve ser numérica."
     
     if get_user_db(username): return False, "Nome de usuário já existe."
     
@@ -113,16 +103,19 @@ def login_user_db(username, password):
             return user
     return None
 
-def reset_password_db(username, email, new_password):
-    user = get_user_db(username)
-    if user and user.get('email') == email:
-        if not new_password.isnumeric(): return False, "A nova senha deve ser numérica."
-        try:
-            supabase_client.table("users").update({"password": new_password}).eq("username", username).execute()
-            return True, "Senha alterada com sucesso!"
-        except Exception as e: return False, f"Erro: {e}"
-    return False, "Usuário ou Email incorretos."
-# -------------------------------------------------
+def recover_password_email(email):
+    if not supabase_client: return False, "Sem conexão."
+    try:
+        response = supabase_client.table("users").select("password").eq("email", email).execute()
+        if response.data:
+            senha = response.data[0]['password']
+            # Simulação de envio de email (print no console)
+            print(f"--- RECUPERAÇÃO DE SENHA ---\nEmail: {email}\nSenha: {senha}\n----------------------------")
+            return True, f"Sua senha foi enviada para {email}!"
+        else:
+            return False, "Email não encontrado."
+    except Exception as e:
+        return False, f"Erro: {e}"
 
 def carregar_palpites(user_email=None):
     # Se tiver Supabase e usuário logado, busca do banco
@@ -189,6 +182,22 @@ def buscar_dados_api():
             return dados
     except:
         return None
+
+# --- AUTO-LOGIN FROM COOKIE ---
+if 'logged_user' not in st.session_state:
+    st.session_state['logged_user'] = None
+
+if not st.session_state['logged_user']:
+    try:
+        # O get() precisa ser chamado antes de qualquer outro elemento do Streamlit
+        username_from_cookie = cookie_manager.get('lotomind_user')
+        if username_from_cookie:
+            user_data = get_user_db(username_from_cookie)
+            if user_data:
+                st.session_state['logged_user'] = user_data
+    except Exception:
+        pass
+# --------------------------
 
 def carregar_dados():
     # Tenta carregar do cache primeiro para ser rápido
@@ -280,6 +289,69 @@ if 'msg_palpite' not in st.session_state:
 if 'confianca_atual' not in st.session_state:
     st.session_state['confianca_atual'] = 0
 
+user_email = None # Inicializa variável para evitar erros de escopo
+
+# --- TELA DE LOGIN / CADASTRO (BLOQUEANTE) ---
+if not st.session_state['logged_user']:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if os.path.exists("logo.png"):
+            st.image("logo.png", width=200)
+        elif os.path.exists("../logo.png"):
+            st.image("../logo.png", width=200)
+        else:
+            st.title("Lotomind")
+        
+        st.markdown("### Bem-vindo!")
+        
+        tab_login, tab_cadastro = st.tabs(["Entrar", "Criar Conta"])
+        
+        with tab_login:
+            with st.form("login_form"):
+                l_user = st.text_input("Usuário")
+                l_pass = st.text_input("Senha", type="password")
+                permanecer = st.checkbox("Permanecer logado")
+                submit_login = st.form_submit_button("Entrar", type="primary", use_container_width=True)
+                
+                if submit_login:
+                    if not supabase_client:
+                        st.error("Erro de conexão com banco de dados.")
+                    else:
+                        u = login_user_db(l_user, l_pass)
+                        if u:
+                            st.session_state['logged_user'] = u
+                            if permanecer:
+                                cookie_manager['lotomind_user'] = u['username']
+                                cookie_manager.save()
+                            st.rerun()
+                        else:
+                            st.error("Usuário ou senha incorretos.")
+            
+            with st.expander("Esqueci minha senha"):
+                st.caption("Informe seu email para receber a senha.")
+                rec_email = st.text_input("Email cadastrado", key="rec_email")
+                if st.button("Enviar Senha por Email"):
+                    ok, msg = recover_password_email(rec_email)
+                    if ok: st.success(msg)
+                    else: st.error(msg)
+
+        with tab_cadastro:
+            with st.form("register_form"):
+                st.write("Preencha para criar sua conta:")
+                c_user = st.text_input("Escolha um Usuário")
+                c_email = st.text_input("Seu Email")
+                c_pass = st.text_input("Escolha uma Senha", type="password")
+                submit_cad = st.form_submit_button("Cadastrar", use_container_width=True)
+                
+                if submit_cad:
+                    ok, msg = register_user_db(c_user, c_email, c_pass)
+                    if ok: 
+                        st.success(msg)
+                    else: 
+                        st.error(msg)
+
+    st.stop() # Interrompe a execução aqui se não estiver logado
+
 # --- SIDEBAR & LOGIN ---
 
 # Sidebar (Menu Lateral)
@@ -292,72 +364,29 @@ with st.sidebar:
     else:
         st.title("Lotomind")
     
-    # --- ÁREA DE LOGIN ---
+    # --- INFO DO USUÁRIO ---
     st.markdown("### 👤 Sua Conta")
     
-    if 'logged_user' not in st.session_state:
-        st.session_state['logged_user'] = None
-
     if supabase_client:
         if st.session_state['logged_user']:
             user = st.session_state['logged_user']
             st.success(f"Olá, {user['username']}!")
-            st.caption(f"Email: {user['email']}")
             if st.button("Sair", key="btn_logout"):
                 st.session_state['logged_user'] = None
-                cookie_manager.delete('lotomind_user')
+                if 'lotomind_user' in cookie_manager:
+                    del cookie_manager['lotomind_user']
+                cookie_manager.save()
                 st.rerun()
             user_email = user['email'] # Usa o email do cadastro para vincular os palpites
-        else:
-            tab_login, tab_cad, tab_rec = st.tabs(["Login", "Cadastro", "Ajuda"])
-            
-            with tab_login:
-                l_user = st.text_input("Usuário", key="l_u")
-                l_pass = st.text_input("Senha (Numérica)", type="password", key="l_p")
-                permanecer_logado = st.checkbox("Permanecer logado", key="chk_persist")
-                if st.button("Entrar", key="btn_login", type="primary"):
-                    u = login_user_db(l_user, l_pass)
-                    if u:
-                        st.session_state['logged_user'] = u
-                        if permanecer_logado:
-                            # Salva o cookie por 30 dias
-                            cookie_manager.set('lotomind_user', u['username'], expires_at=datetime.datetime.now() + datetime.timedelta(days=30))
-                        st.rerun()
-                    else: st.error("Dados incorretos.")
-            
-            with tab_cad:
-                c_user = st.text_input("Criar Usuário", key="c_u")
-                c_email = st.text_input("Seu Email", key="c_e")
-                c_pass = st.text_input("Senha (Numérica)", type="password", key="c_p")
-                if st.button("Cadastrar", key="btn_cad"):
-                    ok, msg = register_user_db(c_user, c_email, c_pass)
-                    if ok: st.success(msg)
-                    else: st.error(msg)
-            
-            with tab_rec:
-                st.caption("Recuperar Acesso:")
-                r_user = st.text_input("Usuário", key="r_u")
-                r_email = st.text_input("Email", key="r_e")
-                r_pass = st.text_input("Nova Senha", type="password", key="r_p")
-                if st.button("Alterar Senha", key="btn_reset"):
-                    ok, msg = reset_password_db(r_user, r_email, r_pass)
-                    if ok: st.success(msg)
-                    else: st.error(msg)
-            
-            user_email = None
     else:
         st.error("Supabase não configurado. Usando modo Offline (Local).")
         user_email = None
     # ---------------------
     
-    def on_menu_change():
-        st.session_state.menu_changed = True
-
     menu = st.radio(
         "Navegação", 
         ["Início", "Meus Palpites", "Estatísticas"],
-        key="menu_selection",
-        on_change=on_menu_change
+        key="menu_selection"
     )
     
     st.markdown("---")
@@ -372,25 +401,6 @@ with st.sidebar:
 
 dados = st.session_state['dados']
 ultimo_resultado = dados[0] if dados else None
-
-# --- LÓGICA PARA FECHAR SIDEBAR ---
-if st.session_state.get("menu_changed", False):
-    st.session_state.menu_changed = False
-    st.components.v1.html(
-        """
-        <script>
-            const streamlitDoc = window.parent.document;
-            const sidebar = streamlitDoc.querySelector('[data-testid="stSidebar"]');
-            if (sidebar) {
-                const closeButton = sidebar.querySelector('button[kind="secondary"]');
-                if (closeButton) {
-                    closeButton.click();
-                }
-            }
-        </script>
-        """,
-        height=0,
-    )
 
 # --- TELA: INÍCIO ---
 if menu == "Início":
@@ -507,7 +517,7 @@ elif menu == "Meus Palpites":
         st.subheader("📊 Desempenho dos Palpites")
         with st.container(border=True):
             if not lista_acertos:
-                st.warning("Nenhum palpite conferido ainda. Aguardando novos sorteios.")
+                st.info("Nenhum palpite conferido ainda. Aguardando novos sorteios.")
             else:
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Palpites Salvos", f"{len(palpites)}")
@@ -584,7 +594,7 @@ elif menu == "Meus Palpites":
 elif menu == "Estatísticas":
     st.title("Estatísticas (Últimos 60)")
     if not dados:
-        st.warning("Sem dados carregados.")
+        st.error("Sem dados carregados.")
     else:
         ult_60 = dados[:60]
         contagem = Counter()
