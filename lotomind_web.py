@@ -14,9 +14,38 @@ from streamlit_cookies_manager import CookieManager
 st.markdown("""
 <style>
 
-/* ===== ESCONDE HEADER SUPERIOR ===== */
+/* ===== HEADER SUPERIOR (Ajustado para Mobile) ===== */
 header[data-testid="stHeader"] {
-    display: none !important;
+    background: transparent !important;
+    height: 0px !important; /* Remove altura para não ocupar espaço */
+    pointer-events: none; /* Permite clicar através do header */
+}
+
+/* Cria um botão de menu personalizado (reaproveitando o nativo) */
+[data-testid="collapsedControl"] {
+    pointer-events: auto !important; /* Reativa cliques no botão */
+    visibility: visible !important; /* Força visibilidade do botão */
+    display: block !important;
+    color: #ffffff !important;
+    background-color: #4b0082 !important; /* Roxo */
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    position: fixed !important;
+    top: 15px !important;
+    left: 15px !important;
+    z-index: 1000001 !important;
+    width: 40px !important; /* Garante tamanho clicável */
+    height: 40px !important;
+}
+
+/* Botão de fechar a sidebar (dentro dela) - Recolher */
+section[data-testid="stSidebar"] button[kind="header"] {
+    color: #ffffff !important;
+    background-color: #4b0082 !important; /* Roxo */
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
 
 /* ===== ESCONDE MENU 3 PONTINHOS ===== */
