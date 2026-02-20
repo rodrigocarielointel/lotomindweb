@@ -9,6 +9,21 @@ import datetime
 from supabase import create_client, Client
 from streamlit_cookies_manager import CookieManager
 
+st.markdown("""
+<style>
+/* Esconde header superior */
+header {visibility: hidden;}
+
+/* Esconde menu dos três pontinhos */
+#MainMenu {visibility: hidden;}
+
+/* Remove espaço vazio que sobra */
+div.block-container {
+    padding-top: 1rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # --- CONFIGURAÇÕES ---
 ARQUIVO_CACHE = "loto_completo_cache.json"
 ARQUIVO_PALPITES = "meus_palpites.json"
@@ -92,12 +107,25 @@ st.markdown(f"""
             color: {VAR_COR_BOTAO_TXT} !important;
         }}
         /* SOBRESCREVE: Botão Primário DENTRO DE FORMS (Login/Cadastro) para Roxo */
-        div[data-testid="stForm"] div[data-testid="stButton"] > button[kind="primary"] {{
+        div[data-testid="stForm"] button[kind="primary"],
+        div[data-testid="stFormSubmitButton"] button {{
             background-color: {VAR_COR_LOGIN_BOTAO_BG} !important;
             color: {VAR_COR_LOGIN_BOTAO_TXT} !important;
+            border-color: {VAR_COR_LOGIN_BOTAO_BG} !important;
         }}
-        div[data-testid="stForm"] div[data-testid="stButton"] > button[kind="primary"]:hover {{
-            background-color: {VAR_COR_LOGIN_BOTAO_HOVER} !important;
+        /* Forçar texto branco no elemento interno do botão (p) */
+        div[data-testid="stForm"] button[kind="primary"] p,
+        div[data-testid="stFormSubmitButton"] button p {{
+            color: {VAR_COR_LOGIN_BOTAO_TXT} !important;
+        }}
+        /* Cor VERDE ao passar o mouse ou clicar */
+        div[data-testid="stForm"] button[kind="primary"]:hover,
+        div[data-testid="stFormSubmitButton"] button:hover,
+        div[data-testid="stForm"] button[kind="primary"]:active,
+        div[data-testid="stFormSubmitButton"] button:active {{
+            background-color: {VERDE_MEDIO} !important;
+            border-color: {VERDE_MEDIO} !important;
+            color: {VAR_COR_LOGIN_BOTAO_TXT} !important; /* Garante texto branco */
         }}
         /* Labels de Usuário/Senha na tela de login */
         div[data-testid="stForm"] label {{
@@ -365,15 +393,18 @@ user_email = None # Inicializa variável para evitar erros de escopo
 if not st.session_state['logged_user']:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=200)
-        elif os.path.exists("../logo.png"):
-            st.image("../logo.png", width=200)
-        else:
-            st.title("Lotomind")
+        # Centralizando Logo
+        c_logo_1, c_logo_2, c_logo_3 = st.columns([1, 1, 1])
+        with c_logo_2:
+            if os.path.exists("logo.png"):
+                st.image("logo.png", use_container_width=True)
+            elif os.path.exists("../logo.png"):
+                st.image("../logo.png", use_container_width=True)
+            else:
+                st.markdown(f"<h1 style='text-align: center; color: {VAR_COR_TITULOS};'>Lotomind</h1>", unsafe_allow_html=True)
         
         # Texto "Bem-vindo!" com a variável de cor
-        st.markdown(f"<h3 style='color:{VAR_COR_LOGIN_BEMVINDO};'>Bem-vindo!</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='color:{VAR_COR_LOGIN_BEMVINDO}; text-align: center;'>Bem-vindo!</h3>", unsafe_allow_html=True)
         
         tab_login, tab_cadastro = st.tabs(["Entrar", "Criar Conta"])
         
