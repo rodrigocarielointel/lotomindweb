@@ -14,9 +14,8 @@ st.markdown("""
 /* Esconde header superior */
 header {visibility: hidden;}
 
-/* ===== ESCONDE RODAPÉ ===== */
-footer {
-    display: none !important;
+#MainMenu {
+    visibility: visible !important;
 }
 
 /* Remove espaço vazio que sobra */
@@ -767,6 +766,7 @@ elif menu == "Estatísticas":
 # Rodapé
 st.markdown("---")
 st.caption("Developed by Rodrigo Carielo | Lotomind Web Version")
+
 
 
 
