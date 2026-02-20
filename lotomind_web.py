@@ -11,18 +11,16 @@ from streamlit_cookies_manager import CookieManager
 
 st.markdown("""
 <style>
+/* Esconde header superior */
+header {visibility: hidden;}
 
 /* Esconde menu dos três pontinhos */
 #MainMenu {visibility: hidden;}
 
-/* Esconde rodapé */
-footer {visibility: hidden;}
-
-/* Remove espaço extra superior */
+/* Remove espaço vazio que sobra */
 div.block-container {
     padding-top: 1rem;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -767,4 +765,5 @@ elif menu == "Estatísticas":
 # Rodapé
 st.markdown("---")
 st.caption("Developed by Rodrigo Carielo | Lotomind Web Version")
+
 
