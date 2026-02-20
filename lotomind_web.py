@@ -12,10 +12,13 @@ from streamlit_cookies_manager import CookieManager
 st.markdown("""
 <style>
 /* Esconde header superior */
-header {visibility: hidden;}
+/* header {visibility: hidden;} */
 
 /* Esconde menu dos três pontinhos */
 #MainMenu {visibility: hidden;}
+
+/* 🔥 Esconde rodapé */
+footer {visibility: hidden;}
 
 /* Remove espaço vazio que sobra */
 div.block-container {
@@ -23,6 +26,7 @@ div.block-container {
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 # --- CONFIGURAÇÕES ---
 ARQUIVO_CACHE = "loto_completo_cache.json"
