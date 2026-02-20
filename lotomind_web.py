@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 import random
 import requests
 import json
@@ -6,25 +7,35 @@ import os
 import urllib.parse
 from collections import Counter
 import datetime
+import time
 from supabase import create_client, Client
 from streamlit_cookies_manager import CookieManager
 
 st.markdown("""
 <style>
-/* Esconde header superior */
-header {visibility: hidden;}
 
-#MainMenu {
-    visibility: visible !important;
+/* ===== ESCONDE HEADER SUPERIOR ===== */
+header[data-testid="stHeader"] {
+    display: none !important;
 }
 
-/* Remove espaço vazio que sobra */
+/* ===== ESCONDE MENU 3 PONTINHOS ===== */
+#MainMenu {
+    visibility: hidden;
+}
+
+/* ===== ESCONDE RODAPÉ ===== */
+footer {
+    display: none !important;
+}
+
+/* ===== REMOVE ESPAÇO SUPERIOR EXTRA ===== */
 div.block-container {
     padding-top: 1rem;
 }
+
 </style>
 """, unsafe_allow_html=True)
-
 
 # --- CONFIGURAÇÕES ---
 ARQUIVO_CACHE = "loto_completo_cache.json"
@@ -65,6 +76,9 @@ VAR_COR_BOTAO_HOVER = "#218838"     # Onde usar: Cor ao passar o mouse (Verde um
 # Sidebar (Barra Lateral)
 VAR_COR_SIDEBAR_TITULOS = ROXO_MEDIO # Onde usar: Títulos dentro da sidebar
 VAR_COR_SIDEBAR_TEXTO = VAR_COR_TEXTO_PRINCIPAL # Onde usar: Texto comum na sidebar
+VAR_COR_SIDEBAR_BG = "#ffffff" # Fundo da Sidebar
+VAR_COR_SIDEBAR_BORDER = ROXO_MEDIO # Borda da Sidebar
+VAR_COR_SIDEBAR_MENU = ROXO_MEDIO # Cor independente para itens do menu (Navegação)
 
 # Mensagem de Confiança (Aviso Específico)
 VAR_COR_MSG_CONFIANCA_BG = VERDE_CLARO  # Onde usar: Fundo da caixa de mensagem de confiança
@@ -77,6 +91,10 @@ VAR_COR_NUMEROS_JOGO = ROXO_MEDIO   # Onde usar: Números grandes do palpite ger
 # Bolas do Sorteio (Resultado)
 VAR_COR_BOLAS_SORTEIO_BG = ROXO_MEDIO # Onde usar: Fundo das bolinhas do resultado
 VAR_COR_BOLAS_SORTEIO_TXT = "#ffffff" # Onde usar: Número dentro das bolinhas
+
+# Textos dos Resultados (API)
+VAR_COR_TEXTO_RESULTADOS = "#000000" # Onde usar: Métricas e informações da API
+VAR_COR_TEXTO_PROXIMO_CONCURSO = "#ffffff" # Onde usar: Texto do prêmio estimado e labels do card
 
 # Tela de Login
 VAR_COR_LOGIN_BEMVINDO = ROXO_MEDIO      # Onde usar: Texto "Bem-vindo!"
@@ -98,6 +116,34 @@ st.markdown(f"""
         h1, h2, h3, h4, h5, h6, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
             color: {VAR_COR_TITULOS} !important;
         }}
+        /* Sidebar com fundo branco e borda roxa */
+        [data-testid="stSidebar"] {{
+            background-color: {VAR_COR_SIDEBAR_BG} !important;
+            border-right: 1px solid {VAR_COR_SIDEBAR_BORDER} !important;
+        }}
+        /* Compactar Sidebar (Subir logo e conteúdo) */
+        section[data-testid="stSidebar"] .block-container {{
+            padding-top: 0rem !important;
+            padding-bottom: 1rem !important;
+        }}
+        /* Reduzir espaçamento entre itens da sidebar */
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
+            gap: 0.5rem !important;
+        }}
+        /* Itens do Menu de Navegação (Radio) em Roxo Independente */
+        [data-testid="stSidebar"] .stRadio label p {{
+            color: {VAR_COR_SIDEBAR_MENU} !important;
+        }}
+        /* Botões da Sidebar (Sair, Forçar Atualização) em Roxo */
+        [data-testid="stSidebar"] div[data-testid="stButton"] > button {{
+            background-color: {VAR_COR_SIDEBAR_TITULOS} !important;
+            color: #ffffff !important;
+            border: none !important;
+        }}
+        [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {{
+            background-color: {ROXO_ESCURO} !important;
+            color: #ffffff !important;
+        }}
         /* Botão Primário (Gerar Palpite) em VERDE */
         div[data-testid="stButton"] > button[kind="primary"] {{
             background-color: {VAR_COR_BOTAO_BG} !important;
@@ -107,6 +153,26 @@ st.markdown(f"""
         div[data-testid="stButton"] > button[kind="primary"]:hover {{
             background-color: {VAR_COR_BOTAO_HOVER} !important;
             color: {VAR_COR_BOTAO_TXT} !important;
+        }}
+        /* Botão Secundário (Salvar/Outros na área principal) em PRETO */
+        section[data-testid="stMain"] div[data-testid="stButton"] > button[kind="secondary"] {{
+            background-color: #000000 !important;
+            color: #ffffff !important;
+            border: none !important;
+        }}
+        section[data-testid="stMain"] div[data-testid="stButton"] > button[kind="secondary"]:hover {{
+            background-color: #333333 !important;
+            color: #ffffff !important;
+        }}
+        /* Botão de Link (WhatsApp) em PRETO */
+        section[data-testid="stMain"] a[data-testid="stLinkButton"] {{
+            background-color: #000000 !important;
+            color: #ffffff !important;
+            border: none !important;
+        }}
+        section[data-testid="stMain"] a[data-testid="stLinkButton"]:hover {{
+            background-color: #333333 !important;
+            color: #ffffff !important;
         }}
         /* SOBRESCREVE: Botão Primário DENTRO DE FORMS (Login/Cadastro) para Roxo */
         div[data-testid="stForm"] button[kind="primary"],
@@ -132,6 +198,15 @@ st.markdown(f"""
         /* Labels de Usuário/Senha na tela de login */
         div[data-testid="stForm"] label {{
             color: {VAR_COR_LOGIN_LABELS} !important;
+        }}
+        /* Texto do Checkbox (Permanecer logado) em PRETO */
+        div[data-testid="stForm"] [data-testid="stCheckbox"] label p,
+        div[data-testid="stForm"] [data-testid="stCheckbox"] label span {{
+            color: #000000 !important;
+        }}
+        /* Textos de Resultados (Metrics e Captions) em PRETO */
+        [data-testid="stMetricLabel"], [data-testid="stMetricValue"], [data-testid="stCaptionContainer"] p {{
+            color: {VAR_COR_TEXTO_RESULTADOS} !important;
         }}
         /* Abas de Login/Navegação */
         [data-testid="stTabs"] button p {{
@@ -389,8 +464,12 @@ if 'msg_palpite' not in st.session_state:
 if 'confianca_atual' not in st.session_state:
     st.session_state['confianca_atual'] = 0
 
-user_email = None # Inicializa variável para evitar erros de escopo
-
+# Define user_email para ser usado em todo o app
+user_email = None
+if supabase_client and st.session_state.get('logged_user'):
+    user = st.session_state['logged_user']
+    user_email = user.get('email')
+    
 # --- TELA DE LOGIN / CADASTRO (BLOQUEANTE) ---
 if not st.session_state['logged_user']:
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -462,30 +541,11 @@ if not st.session_state['logged_user']:
 with st.sidebar:
     # Tenta achar o logo na pasta atual ou na anterior
     if os.path.exists("logo.png"):
-        st.image("logo.png", width=150)
+        st.image("logo.png", use_container_width=True)
     elif os.path.exists("../logo.png"):
-        st.image("../logo.png", width=150)
+        st.image("../logo.png", use_container_width=True)
     else:
         st.title("Lotomind")
-    
-    # --- INFO DO USUÁRIO ---
-    st.markdown("### 👤 Sua Conta")
-    
-    if supabase_client:
-        if st.session_state['logged_user']:
-            user = st.session_state['logged_user']
-            st.success(f"Olá, {user['username']}!")
-            if st.button("Sair", key="btn_logout"):
-                st.session_state['logged_user'] = None
-                if 'lotomind_user' in cookie_manager:
-                    del cookie_manager['lotomind_user']
-                cookie_manager.save()
-                st.rerun()
-            user_email = user['email'] # Usa o email do cadastro para vincular os palpites
-    else:
-        st.error("Supabase não configurado. Usando modo Offline (Local).")
-        user_email = None
-    # ---------------------
     
     menu = st.radio(
         "Navegação", 
@@ -502,115 +562,169 @@ with st.sidebar:
                 st.success("Dados atualizados!")
             else:
                 st.error("Erro ao conectar.")
+    
+    # Botão Sair (Logout)
+    if user_email:
+        if st.button("Sair", key="btn_logout"):
+            st.session_state['logged_user'] = None
+            if 'lotomind_user' in cookie_manager:
+                del cookie_manager['lotomind_user']
+            cookie_manager.save()
+            st.rerun()
 
 dados = st.session_state['dados']
 ultimo_resultado = dados[0] if dados else None
 
 # --- TELA: INÍCIO ---
 if menu == "Início":
-    st.title("LotoMind 🍀")
+    # --- INFO DO USUÁRIO NO TOPO DIREITO DA TELA PRINCIPAL ---
+    if user_email:
+        user = st.session_state['logged_user']
+        st.markdown(f"""
+        <div style="text-align: right; margin-bottom: 1rem;">
+            <span style="color: {ROXO_MEDIO}; font-weight: bold;">👤 Sua Conta</span><br>
+            <span style="color: grey; font-size: 0.9rem;">Olá, <b>{user['username']}</b>!</span>
+        </div>
+        """, unsafe_allow_html=True)
+    # ---------------------------------------------------------
+
+    # Header Moderno
+    st.markdown(f"<h1 style='text-align: center; color: {ROXO_MEDIO}; margin-bottom: 0px;'>LotoMind 🍀</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: grey; font-size: 14px; margin-top: 0px;'>Sua inteligência artificial para a Lotofácil</p>", unsafe_allow_html=True)
     
     if ultimo_resultado:
-        # --- SEÇÃO 1: PRÓXIMO CONCURSO ---
-        st.subheader("🎯 Próximo Concurso")
-        with st.container(border=True):
-            c1, c2, c3 = st.columns(3)
-
-            prox_concurso = ultimo_resultado.get('proximoConcurso')
-            c1.metric("Concurso", prox_concurso if prox_concurso else "Aguardando")
-
-            prox_data = ultimo_resultado.get('dataProximoConcurso')
-            c2.metric("Data", prox_data if prox_data else "Aguardando")
-            
-            valor_estimado = ultimo_resultado.get('valorEstimadoProximoConcurso', 0)
-            c3.metric("Prêmio Estimado", f"R$ {valor_estimado:,.2f}")
-
-    # --- SEÇÃO 2: GERADOR DE PALPITES ---
-    st.divider()
-    st.subheader("Gerador de Jogos")
-
-    if st.button("🎲 GERAR NOVO PALPITE", type="primary", use_container_width=True):
-        if dados and ultimo_resultado:
-            jogo, confianca, msg = gerar_palpite_logica(dados, ultimo_resultado)
-            st.session_state['palpite_atual'] = jogo
-            st.session_state['msg_palpite'] = msg
-            st.session_state['confianca_atual'] = confianca
-        else:
-            st.error("Não foi possível carregar os dados para gerar um palpite.")
-
-    if st.session_state['palpite_atual']:
-        jogo = st.session_state['palpite_atual']
+        # --- HERO SECTION: PRÓXIMO CONCURSO ---
+        valor_estimado = ultimo_resultado.get('valorEstimadoProximoConcurso', 0)
+        prox_concurso = ultimo_resultado.get('proximoConcurso')
+        prox_data = ultimo_resultado.get('dataProximoConcurso')
         
-        # Exibição dos Números com a variável VAR_COR_NUMEROS_JOGO
-        st.markdown(f"<h2 style='text-align: center; color: {VAR_COR_NUMEROS_JOGO};'>{' '.join([f'{n:02d}' for n in jogo])}</h2>", unsafe_allow_html=True)
-        
-        # Mensagem de Confiança com as variáveis VAR_COR_MSG_CONFIANCA_...
+        # Card de Destaque (Roxo com Sombra)
         st.markdown(f"""
-            <div style='background-color: {VAR_COR_MSG_CONFIANCA_BG}; color: {VAR_COR_MSG_CONFIANCA_TXT}; 
-            padding: 10px; border-radius: 5px; border: 1px solid {VAR_COR_MSG_CONFIANCA_BORDA}; text-align: center; margin-bottom: 10px;'>
-                {st.session_state['msg_palpite']}
-            </div>
+<div style="background-color: {ROXO_MEDIO}; padding: 25px; border-radius: 15px; text-align: center; color: white; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(75, 0, 130, 0.3);">
+<p style="margin: 0; font-size: 14px; opacity: 0.9; letter-spacing: 1px; text-transform: uppercase; color: {VAR_COR_TEXTO_PROXIMO_CONCURSO} !important;">Próximo Concurso <b>{prox_concurso}</b> • {prox_data}</p>
+<div style="margin: 10px 0; font-size: 42px; color: {VAR_COR_TEXTO_PROXIMO_CONCURSO} !important; font-weight: 800; line-height: 1.2;">R$ {valor_estimado:,.2f}</div>
+<div style="display: inline-block; background-color: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 20px;">
+<p style="margin: 0; font-size: 12px; font-weight: bold; color: {VAR_COR_TEXTO_PROXIMO_CONCURSO} !important;">PRÊMIO ESTIMADO</p>
+</div>
+</div>
         """, unsafe_allow_html=True)
 
-        col_a, col_b = st.columns(2)
-        if col_a.button("💾 Salvar Palpite"):
-            if ultimo_resultado:
-                novo = {
-                    "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
-                    "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
-                    "numeros": jogo,
-                    "confianca": st.session_state.get('confianca_atual', 0)
-                }
-                if salvar_novo_palpite(novo, user_email):
-                    st.toast("Palpite salvo com sucesso!", icon="✅")
+        # --- GERADOR DE PALPITE (SEM ABAS) ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Botão de Ação Principal (Grande e Centralizado)
+        col_btn_1, col_btn_2, col_btn_3 = st.columns([1, 2, 1])
+        with col_btn_2:
+            btn_gerar = st.button("✨ GERAR JOGO INTELIGENTE", type="primary", use_container_width=True)
+        
+        if btn_gerar:
+            if dados and ultimo_resultado:
+                with st.spinner("Analisando estatísticas e padrões..."):
+                    time.sleep(0.8) # Pequeno delay para sensação de processamento
+                    jogo, confianca, msg = gerar_palpite_logica(dados, ultimo_resultado)
+                    st.session_state['palpite_atual'] = jogo
+                    st.session_state['msg_palpite'] = msg
+                    st.session_state['confianca_atual'] = confianca
+            else:
+                st.error("Erro ao carregar dados.")
 
-        if ultimo_resultado:
-            nums_str = " ".join([f"{n:02d}" for n in jogo])
-            texto_wpp = f"🍀 Sugestão Lotomind\nConcurso: {ultimo_resultado.get('proximoConcurso', 'N/A')}\nNúmeros: {nums_str}"
-            link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
-            col_b.link_button("📱 Compartilhar WhatsApp", link_wpp)
-
-    # --- SEÇÃO 3: ÚLTIMO SORTEIO ---
-    if ultimo_resultado:
-        st.divider()
-        st.subheader("Último Sorteio Realizado")
-        with st.container(border=True):
-            premiacao_15 = ultimo_resultado.get('premiacoes', [{}])[0]
-            ganhadores = premiacao_15.get('ganhadores') # Pode ser None
-            valor_premio = premiacao_15.get('valorPremio', 0)
-
-            # Layout com 3 colunas para melhor visualização
-            c1, c2, c3 = st.columns(3)
-
-            c1.metric("Concurso", f"{ultimo_resultado.get('concurso', 'N/A')}")
-            c1.caption(f"Data: {ultimo_resultado.get('data', 'N/A')}")
+        # Exibição do Palpite Gerado
+        if st.session_state['palpite_atual']:
+            jogo = st.session_state['palpite_atual']
+            confianca = st.session_state.get('confianca_atual', 0)
+            msg = st.session_state['msg_palpite']
             
-            c2.metric("Ganhadores (15 pts)", f"{ganhadores}" if ganhadores is not None else "N/A")
-            c3.metric("Prêmio Total", f"R$ {valor_premio:,.2f}")
+            st.markdown("---")
             
-            st.write("**Dezenas Sorteadas:**")
-            dezenas = ultimo_resultado.get('dezenas') or ultimo_resultado.get('listaDezenas')
-            if dezenas:
-                html_bolas_list = []
-                for i, d in enumerate(dezenas):
-                    # Bolas do sorteio usando VAR_COR_BOLAS_SORTEIO_BG e VAR_COR_BOLAS_SORTEIO_TXT
-                    html_bolas_list.append(f"<span style='display:inline-block; text-align:center; background-color:{VAR_COR_BOLAS_SORTEIO_BG}; color:{VAR_COR_BOLAS_SORTEIO_TXT}; padding: 6px 0; width: 36px; height: 36px; line-height: 24px; border-radius:50%; margin:3px; font-weight:bold; font-size: 14px;'>{d}</span>")
-                    if (i + 1) % 5 == 0 and (i + 1) < len(dezenas):
-                        html_bolas_list.append("<br>")
-                
-                html_bolas = "".join(html_bolas_list)
-                st.markdown(f"<div style='text-align: center;'>{html_bolas}</div>", unsafe_allow_html=True)
+            # Organizar números em 3 linhas de 5
+            rows_html = []
+            for i in range(0, 15, 5):
+                chunk = jogo[i:i+5]
+                row_content = ''.join([f'<div style="width: 40px; height: 40px; background-color: {ROXO_MEDIO}; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">{n:02d}</div>' for n in chunk])
+                rows_html.append(f'<div style="display: flex; justify-content: center; gap: 8px; margin-bottom: 8px;">{row_content}</div>')
+            
+            numeros_html = "".join(rows_html)
+
+            # Card do Palpite
+            st.markdown(f"""
+<div style="background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 20px; text-align: center;">
+<p style="color: {ROXO_MEDIO}; font-weight: bold; margin-bottom: 15px;">SUGESTÃO DA IA</p>
+{numeros_html}
+</div>
+<div style="background-color: {VERDE_CLARO}; color: {VERDE_ESCURO}; padding: 8px; border-radius: 5px; font-size: 14px; border: 1px solid {VERDE_MEDIO}; margin-top: 10px; text-align: center;">
+{msg}
+</div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Botões de Ação Secundários
+            c_salvar, c_share = st.columns(2)
+            with c_salvar:
+                # Botão Salvar com fundo PRETO (agora usa o estilo secondary customizado)
+                if st.button("💾 Salvar Palpite", use_container_width=True):
+                    novo = {
+                        "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
+                        "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
+                        "numeros": jogo,
+                        "confianca": confianca
+                    }
+                    if salvar_novo_palpite(novo, user_email):
+                        st.toast("Palpite salvo com sucesso!", icon="✅")
+            
+            with c_share:
+                nums_str = " ".join([f"{n:02d}" for n in jogo])
+                texto_wpp = f"🍀 *Lotomind* sugere:\nConcurso: {ultimo_resultado.get('proximoConcurso')}\n\n`{nums_str}`"
+                link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
+                st.link_button("📱 Enviar WhatsApp", link_wpp, use_container_width=True)
+
+        # --- ÚLTIMO RESULTADO (MOVIDO PARA BAIXO) ---
+        st.markdown("---")
+        st.subheader("Último Resultado")
+        
+        # Card do Último Resultado
+        # Tratamento de erro para evitar falhas se a API retornar dados incompletos
+        premiacoes = ultimo_resultado.get('premiacoes')
+        premiacao_15 = premiacoes[0] if premiacoes and isinstance(premiacoes, list) else {}
+        
+        ganhadores = premiacao_15.get('ganhadores', 0)
+        valor_premio = premiacao_15.get('valorPremio', 0)
+        dezenas = ultimo_resultado.get('dezenas') or ultimo_resultado.get('listaDezenas') or []
+        
+        # Gera o HTML das bolinhas separadamente para evitar erros de renderização
+        html_bolas = ''.join([f'<div style="width: 32px; height: 32px; background-color: #eee; color: #333; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; border: 1px solid #ccc;">{n}</div>' for n in dezenas])
+
+        st.markdown(f"""
+<div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px;">
+<h4 style="text-align: center; color: {ROXO_MEDIO}; margin-bottom: 5px;">Concurso {ultimo_resultado.get('concurso')}</h4>
+<p style="text-align: center; color: grey; font-size: 13px; margin-bottom: 20px;">Realizado em {ultimo_resultado.get('data')}</p>
+<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 5px; margin-bottom: 25px;">
+{html_bolas}
+</div>
+<div style="display: flex; justify-content: space-around; background-color: #f8f9fa; padding: 15px; border-radius: 8px;">
+<div style="text-align: center;">
+<span style="font-size: 12px; color: #666; text-transform: uppercase;">Ganhadores (15)</span><br>
+<span style="font-size: 20px; font-weight: bold; color: {ROXO_MEDIO};">{ganhadores}</span>
+</div>
+<div style="width: 1px; background-color: #ddd;"></div>
+<div style="text-align: center;">
+<span style="font-size: 12px; color: #666; text-transform: uppercase;">Prêmio Pago</span><br>
+<span style="font-size: 20px; font-weight: bold; color: {VERDE_MEDIO};">R$ {valor_premio:,.2f}</span>
+</div>
+</div>
+</div>
+        """, unsafe_allow_html=True)
 
 # --- TELA: MEUS PALPITES ---
 elif menu == "Meus Palpites":
-    st.title("Histórico de Palpites")
+    st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>📜 Meus Palpites</h2>", unsafe_allow_html=True)
     palpites = carregar_palpites(user_email)
 
     if not palpites:
         st.markdown("ℹ️ *Nenhum palpite salvo nesta conta.*")
     else:
         # Botão de limpar tudo desativado na nuvem por segurança, ou implemente delete all
-        if st.button("🔄 Atualizar Lista"):
+        if st.button("🔄 Atualizar Lista", key="btn_refresh_palpites"):
             st.rerun()
         # --- CÁLCULO DAS ESTATÍSTICAS ---
         lista_acertos = []
@@ -626,38 +740,27 @@ elif menu == "Meus Palpites":
                         contagem_faixas.update([acertos])
                         break
         
-        # --- EXIBIÇÃO DAS ESTATÍSTICAS ---
-        st.subheader("📊 Desempenho dos Palpites")
-        with st.container(border=True):
-            if not lista_acertos:
-                st.markdown("ℹ️ *Nenhum palpite conferido ainda. Aguardando novos sorteios.*")
-            else:
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Palpites Salvos", f"{len(palpites)}")
-                col2.metric("Média Acertos", f"{sum(lista_acertos) / len(lista_acertos):.2f}")
-                col3.metric("Mín. Acertos", f"{min(lista_acertos)}")
-                col4.metric("Máx. Acertos", f"{max(lista_acertos)}")
-
-                st.divider()
-                
-                st.write("**Resumo de Pontuações (Jogos Conferidos):**")
-                
-                abaixo_9 = sum(contagem_faixas[i] for i in range(10))
-                
-                c1, c2 = st.columns(2)
-                c1.markdown(f"""
-                - **15 acertos:** `{contagem_faixas[15]}`
-                - **14 acertos:** `{contagem_faixas[14]}`
-                - **13 acertos:** `{contagem_faixas[13]}`
-                - **12 acertos:** `{contagem_faixas[12]}`
-                """)
-                c2.markdown(f"""
-                - **11 acertos:** `{contagem_faixas[11]}`
-                - **10 acertos:** `{contagem_faixas[10]}`
-                - **9 ou menos:** `{abaixo_9}`
-                """)
-
-        st.divider()
+        # --- DASHBOARD DE ESTATÍSTICAS MODERNO ---
+        total_jogos = len(palpites)
+        media_acertos = sum(lista_acertos) / len(lista_acertos) if lista_acertos else 0
+        max_acertos = max(lista_acertos) if lista_acertos else 0
+        
+        st.markdown(f"""
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <div style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center;">
+                <span style="font-size: 28px; font-weight: bold; color: {ROXO_MEDIO};">{total_jogos}</span><br>
+                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Jogos Salvos</span>
+            </div>
+            <div style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center;">
+                <span style="font-size: 28px; font-weight: bold; color: {VERDE_MEDIO};">{max_acertos}</span><br>
+                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Máx. Acertos</span>
+            </div>
+            <div style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center;">
+                <span style="font-size: 28px; font-weight: bold; color: #333;">{media_acertos:.1f}</span><br>
+                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Média</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         # --- BOTÃO WHATSAPP ---
         if ultimo_resultado:
@@ -672,101 +775,225 @@ elif menu == "Meus Palpites":
                 
                 link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
                 st.link_button("📱 Compartilhar Palpites do Próximo Sorteio", link_wpp, use_container_width=True)
+                st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- LISTA DE PALPITES INDIVIDUAIS ---
-        st.subheader("Seus Jogos Salvos")
-        # Se vier do banco, pode não ser uma lista simples, garantimos a iteração
-        for i, p in enumerate(palpites):
+        # --- PAGINAÇÃO ---
+        if 'pag_atual' not in st.session_state:
+            st.session_state['pag_atual'] = 1
+            
+        items_por_pagina = 20
+        total_paginas = (len(palpites) - 1) // items_por_pagina + 1
+        
+        # Ajusta página atual se necessário
+        if st.session_state['pag_atual'] > total_paginas:
+            st.session_state['pag_atual'] = max(1, total_paginas)
+            
+        pag_atual = st.session_state['pag_atual']
+        inicio = (pag_atual - 1) * items_por_pagina
+        fim = inicio + items_por_pagina
+        palpites_pagina = palpites[inicio:fim]
+
+        # --- LISTA DE PALPITES (CARDS) ---
+        c_tit, c_pag = st.columns([1, 1])
+        with c_tit:
+            st.subheader("Seus Jogos")
+        with c_pag:
+            if total_paginas > 1:
+                c_prev, c_lbl, c_next = st.columns([1, 2, 1])
+                with c_prev:
+                    if pag_atual > 1 and st.button("◀", key="btn_prev"):
+                        st.session_state['pag_atual'] -= 1
+                        st.rerun()
+                with c_lbl:
+                    st.markdown(f"<p style='text-align: center; margin-top: 5px; font-size: 12px;'>Pág <b>{pag_atual}/{total_paginas}</b></p>", unsafe_allow_html=True)
+                with c_next:
+                    if pag_atual < total_paginas and st.button("▶", key="btn_next"):
+                        st.session_state['pag_atual'] += 1
+                        st.rerun()
+        
+        for i, p in enumerate(palpites_pagina):
+            index_real = inicio + i # Índice real na lista completa para exclusão
             acertos = 0
-            status = "Aguardando..."
-            cor_status = "grey"
-            confianca_salva = p.get('confianca', 'N/A')
-            p_id = p.get('id') # ID do Supabase
+            
+            # Lógica de Status e Cores
+            found_result = False
+            status_display = "Aguardando Sorteio"
             
             if dados:
                 for sorteio in dados:
                     if str(sorteio['concurso']) == str(p.get('concurso')):
+                        found_result = True
                         sorteados = [int(x) for x in (sorteio.get('dezenas') or sorteio.get('listaDezenas'))]
                         acertos = len(set(p['numeros']) & set(sorteados))
-                        status = f"{acertos} Acertos"
-                        cor_status = "green" if acertos >= 11 else "red"
+                        
+                        if acertos >= 11:
+                            status_display = f":green[{acertos} Acertos]"
+                        else:
+                            status_display = f":red[{acertos} Acertos]"
                         break
             
-            col_exp, col_del = st.columns([0.9, 0.1])
-
-            with col_exp.expander(f"Concurso {p['concurso']} | {status} | Confiança: {confianca_salva}%"):
-                st.write(f"**Seus Números:** {', '.join([f'{n:02d}' for n in p['numeros']])}")
-                if status != "Aguardando...":
-                    st.markdown(f"Resultado: :{cor_status}[{status}]")
+            # Layout Compacto (Expander)
+            if not found_result:
+                label_header = f"⏳ Concurso {p.get('concurso', 'N/A')}  |  {status_display}"
+            else:
+                label_header = f"Concurso {p.get('concurso', 'N/A')}  |  {status_display}"
             
-            if col_del.button("🗑️", key=f"del_{i}", help="Excluir este palpite"):
-                if excluir_palpite(p_id, user_email, index_local=i):
-                    st.rerun()
+            with st.expander(label_header):
+                st.caption(f"Data: {p.get('data', 'N/A')}")
+                
+                numeros = p['numeros']
+                html_numeros = ''.join([f'<div style="width: 30px; height: 30px; background-color: {ROXO_MEDIO}; color: white; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; margin: 2px;">{n:02d}</div>' for n in numeros])
+                st.markdown(f"<div style='text-align: center; margin: 10px 0;'>{html_numeros}</div>", unsafe_allow_html=True)
+                
+                col_conf, col_trash = st.columns([3, 1])
+                with col_conf:
+                    st.markdown(f"🤖 Confiança: **{p.get('confianca', 0)}%**")
+                with col_trash:
+                    if st.button("🗑️ Excluir", key=f"del_{index_real}"):
+                        if excluir_palpite(p.get('id'), user_email, index_local=index_real):
+                            st.rerun()
 
 # --- TELA: ESTATÍSTICAS ---
 elif menu == "Estatísticas":
-    st.title("Estatísticas (Últimos 60)")
+    st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>📊 Estatísticas (Últimos 60)</h2>", unsafe_allow_html=True)
+    
     if not dados:
         st.error("Sem dados carregados.")
     else:
         ult_60 = dados[:60]
-        contagem = Counter()
+        all_nums = []
         for s in ult_60:
-            contagem.update([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])
+            all_nums.extend([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])
         
+        contagem = Counter(all_nums)
+        
+        # --- FREQUÊNCIA (HOT & COLD) ---
+        st.subheader("🔥 Termômetro dos Números")
         c1, c2 = st.columns(2)
+        
         with c1:
-            st.subheader("🔥 Mais Sorteados")
-            df_top = [{"Dezena": f"{n:02d}", "Vezes": c} for n, c in contagem.most_common(10)]
-            st.dataframe(df_top, hide_index=True, use_container_width=True)
+            top_10 = contagem.most_common(10)
+            html_hot = f"""
+<div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; height: 100%;">
+<h4 style='color: {ROXO_MEDIO}; margin-top:0; text-align: center;'>🔥 Mais Sorteados (Top 10)</h4>
+<div style='height: 1px; background-color: #eee; margin: 10px 0;'></div>
+"""
+            for n, c in top_10:
+                html_hot += f"""
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0;">
+<div style="display: flex; align-items: center;">
+<div style="width: 32px; height: 32px; background-color: {ROXO_MEDIO}; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; margin-right: 10px;">{n:02d}</div>
+<span style="font-weight: 500; color: #333;">Dezena {n:02d}</span>
+</div>
+<div style="font-weight: bold; color: {ROXO_MEDIO}; font-size: 16px;">{c}x</div>
+</div>
+"""
+            html_hot += "</div>"
+            st.markdown(html_hot, unsafe_allow_html=True)
+            
         with c2:
-            st.subheader("❄️ Menos Sorteados")
-            df_bot = [{"Dezena": f"{n:02d}", "Vezes": c} for n, c in contagem.most_common()[-6:]]
-            st.dataframe(df_bot, hide_index=True, use_container_width=True)
+            bottom_6 = contagem.most_common()[:-7:-1]
+            html_cold = f"""
+<div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; height: 100%;">
+<h4 style='color: #0c5460; margin-top:0; text-align: center;'>❄️ Menos Sorteados (Top 6)</h4>
+<div style='height: 1px; background-color: #eee; margin: 10px 0;'></div>
+"""
+            for n, c in bottom_6:
+                html_cold += f"""
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0;">
+<div style="display: flex; align-items: center;">
+<div style="width: 32px; height: 32px; background-color: #6c757d; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; margin-right: 10px;">{n:02d}</div>
+<span style="font-weight: 500; color: #333;">Dezena {n:02d}</span>
+</div>
+<div style="font-weight: bold; color: #0c5460; font-size: 16px;">{c}x</div>
+</div>
+"""
+            html_cold += "</div>"
+            st.markdown(html_cold, unsafe_allow_html=True)
 
-        st.divider()
+        st.markdown("<br>", unsafe_allow_html=True)
 
         # Cálculos de Atraso e Sequência
         atrasados = []
         sequencias = []
 
         for n in range(1, 26):
-            # Atraso (Quantos sorteios faz que não sai)
+            # Atraso
             curr_atraso = 0
             for s in dados:
                 nums = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
                 if n not in nums: curr_atraso += 1
                 else: break
-            if curr_atraso >= 3:
-                atrasados.append({"Dezena": f"{n:02d}", "Atraso": f"{curr_atraso} jogos"})
+            if curr_atraso >= 2:
+                atrasados.append((n, curr_atraso))
 
-            # Sequência (Quantos sorteios seguidos está saindo)
+            # Sequência
             curr_seq = 0
             for s in dados:
                 nums = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
                 if n in nums: curr_seq += 1
                 else: break
-            if curr_seq >= 4:
-                sequencias.append({"Dezena": f"{n:02d}", "Sequência": f"{curr_seq} seguidos"})
+            if curr_seq >= 2:
+                sequencias.append((n, curr_seq))
+        
+        # Ordenação
+        atrasados.sort(key=lambda x: x[1], reverse=True)
+        sequencias.sort(key=lambda x: x[1], reverse=True)
 
+        st.subheader("⚠️ Alertas de Padrões")
         c3, c4 = st.columns(2)
         with c3:
-            st.subheader("🐢 Mais Atrasados")
-            st.dataframe(atrasados if atrasados else [{"Info": "Nenhum atraso >= 3"}], hide_index=True, use_container_width=True)
+            st.markdown("**🐢 Mais Atrasados**")
+            if atrasados:
+                for n, d in atrasados[:5]:
+                    st.markdown(f"""
+                    <div style="background-color: white; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 20px; margin-right: 10px;">⏳</span>
+                            <span style="font-weight: bold; color: #333; font-size: 16px;">Dezena {n:02d}</span>
+                        </div>
+                        <span style="background-color: #ffc107; color: #333; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">{d} jogos</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Sem atrasos significativos.")
         
         with c4:
-            st.subheader("⚡ Em Sequência")
-            st.dataframe(sequencias if sequencias else [{"Info": "Nenhuma sequência >= 4"}], hide_index=True, use_container_width=True)
+            st.markdown("**⚡ Em Sequência**")
+            if sequencias:
+                for n, s in sequencias[:5]:
+                    st.markdown(f"""
+                    <div style="background-color: white; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 20px; margin-right: 10px;">🔥</span>
+                            <span style="font-weight: bold; color: #333; font-size: 16px;">Dezena {n:02d}</span>
+                        </div>
+                        <span style="background-color: {VERDE_CLARO}; color: {VERDE_ESCURO}; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">{s} seguidos</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Sem sequências longas.")
 
-        st.divider()
-        st.subheader("📜 Histórico (Últimos 60)")
-        df_hist = [{"Concurso": s['concurso'], "Data": s['data'], "Dezenas": str(sorted([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])).replace('[','').replace(']','')} for s in ult_60]
-        st.dataframe(df_hist, hide_index=True, use_container_width=True)
+        # --- GRÁFICO DE FREQUÊNCIA ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📊 Frequência Geral")
+        
+        chart_data = pd.DataFrame.from_dict(contagem, orient='index', columns=['Frequência']).reset_index()
+        chart_data.columns = ['Dezena', 'Frequência']
+        chart_data['Dezena'] = chart_data['Dezena'].apply(lambda x: f"{x:02d}")
+        chart_data = chart_data.sort_values(by='Dezena')
+        
+        st.bar_chart(chart_data, x='Dezena', y='Frequência', use_container_width=True)
+
+        # --- HISTÓRICO ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("📜 Ver Histórico Completo (Tabela)"):
+            df_hist = pd.DataFrame([
+                {"Concurso": s['concurso'], "Data": s['data'], "Dezenas": str(sorted([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])).replace('[','').replace(']','')} 
+                for s in ult_60
+            ])
+            st.dataframe(df_hist, hide_index=True, use_container_width=True)
 
 # Rodapé
 st.markdown("---")
 st.caption("Developed by Rodrigo Carielo | Lotomind Web Version")
-
-
-
-
