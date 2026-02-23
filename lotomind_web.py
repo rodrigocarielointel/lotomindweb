@@ -402,11 +402,12 @@ def carregar_todos_palpites_globais():
     except:
         return [], {}
 
-def salvar_novo_palpite(novo_palpite, user_email=None):
+def salvar_novo_palpite(novo_palpite, user_email=None, tipo="salvo"):
     # Se tiver Supabase, salva na nuvem
     if supabase_client and user_email:
         # Adiciona o email ao objeto antes de salvar
         novo_palpite['user_email'] = user_email
+        novo_palpite['tipo'] = tipo
         try:
             supabase_client.table("palpites").insert(novo_palpite).execute()
             return True
@@ -416,6 +417,7 @@ def salvar_novo_palpite(novo_palpite, user_email=None):
     
     # Fallback Local (Modo antigo)
     palpites_locais = carregar_palpites()
+    novo_palpite['tipo'] = tipo
     palpites_locais.append(novo_palpite)
     with open(ARQUIVO_PALPITES, "w") as f:
         json.dump(palpites_locais, f, indent=4)
@@ -693,6 +695,16 @@ with tab_inicio:
                     st.session_state['palpite_atual'] = jogo
                     st.session_state['msg_palpite'] = msg
                     st.session_state['confianca_atual'] = confianca
+                    
+                    # Auto-save como "gerado" para histórico global (apenas se logado para não poluir local)
+                    if user_email:
+                        novo_auto = {
+                            "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
+                            "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
+                            "numeros": jogo,
+                            "confianca": confianca
+                        }
+                        salvar_novo_palpite(novo_auto, user_email, tipo="gerado")
             else:
                 st.error("Erro ao carregar dados.")
 
@@ -737,7 +749,7 @@ with tab_inicio:
                         "numeros": jogo,
                         "confianca": confianca
                     }
-                    if salvar_novo_palpite(novo, user_email):
+                    if salvar_novo_palpite(novo, user_email, tipo="salvo"):
                         st.toast("Palpite salvo com sucesso!", icon="✅")
             
             with c_share:
@@ -1175,6 +1187,7 @@ with tab_premios:
                             "acertos": acertos,
                             "premio": premio,
                             "numeros": numeros_palpite,
+                            "tipo": p.get('tipo', 'salvo'),
                             "data": p.get('created_at', '')[:10]
                         })
         
@@ -1190,12 +1203,20 @@ with tab_premios:
                 bg_card = "#fdfdfd" if v['acertos'] < 14 else "#f0fff4"
                 border_card = "#eee" if v['acertos'] < 14 else VERDE_CLARO
                 
+                # Badge de Tipo
+                tipo_str = v.get('tipo', 'salvo')
+                if tipo_str == 'salvo':
+                    badge_html = f"<span style='background-color: {ROXO_MEDIO}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; text-transform: uppercase;'>💾 Salvo</span>"
+                else:
+                    badge_html = f"<span style='background-color: #6c757d; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; text-transform: uppercase;'>🎲 Gerado</span>"
+                
                 st.markdown(f"""
                 <div style="background-color: {bg_card}; border: 1px solid {border_card}; border-radius: 10px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <div style="font-weight: bold; color: {ROXO_MEDIO}; font-size: 16px;">👤 {v['username']}</div>
-                            <div style="font-size: 12px; color: #666;">Concurso {v['concurso']} • {v['data']}</div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Concurso {v['concurso']} • {v['data']}</div>
+                            {badge_html}
                         </div>
                         <div style="text-align: right;">
                             <div style="font-weight: bold; font-size: 18px; color: {cor_destaque};">{v['acertos']} Acertos</div>
