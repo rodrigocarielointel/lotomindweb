@@ -421,8 +421,11 @@ def salvar_novo_palpite(novo_palpite, user_email=None, tipo="salvo"):
         novo_palpite['user_email'] = user_email
         novo_palpite['tipo'] = tipo
         try:
-            supabase_client.table("palpites").insert(novo_palpite).execute()
-            return True
+            # Modificado para retornar o ID do novo registro
+            response = supabase_client.table("palpites").insert(novo_palpite).execute()
+            if response.data and len(response.data) > 0:
+                return response.data[0].get('id')
+            return True # Fallback
         except Exception as e:
             st.error(f"Erro ao salvar na nuvem: {e}")
             return False
@@ -434,6 +437,17 @@ def salvar_novo_palpite(novo_palpite, user_email=None, tipo="salvo"):
     with open(ARQUIVO_PALPITES, "w") as f:
         json.dump(palpites_locais, f, indent=4)
     return True
+
+def atualizar_palpite_existente(palpite_id, novo_tipo="salvo"):
+    """Atualiza o 'tipo' de um palpite existente no banco de dados."""
+    if supabase_client and palpite_id:
+        try:
+            supabase_client.table("palpites").update({"tipo": novo_tipo}).eq("id", palpite_id).execute()
+            return True
+        except Exception as e:
+            st.error(f"Erro ao atualizar palpite: {e}")
+            return False
+    return False
 
 def excluir_palpite(palpite_id, user_email=None, index_local=None):
     if supabase_client and user_email and palpite_id:
@@ -568,6 +582,8 @@ if 'msg_palpite' not in st.session_state:
     st.session_state['msg_palpite'] = ""
 if 'confianca_atual' not in st.session_state:
     st.session_state['confianca_atual'] = 0
+if 'palpite_id_atual' not in st.session_state:
+    st.session_state['palpite_id_atual'] = None
 
 # Define user_email para ser usado em todo o app
 user_email = None
