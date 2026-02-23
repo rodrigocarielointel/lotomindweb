@@ -12,6 +12,14 @@ from supabase import create_client, Client
 from streamlit_cookies_manager import CookieManager
 import streamlit.components.v1 as components
 
+# Configuração da Página Web
+st.set_page_config(
+    page_title="Lotomind Web",
+    page_icon="🍀",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
+
 st.markdown("""
 <style>
 /* ===== ESCONDE MENU 3 PONTINHOS E RODAPÉ ===== */
@@ -34,7 +42,7 @@ div[data-testid="stTabs"] {
     margin-top: -60px; 
 }
 div[data-testid="stTabs"] div[role="tablist"] {
-    justify-content: flex-end;
+    justify-content: center;
     border-bottom: none !important;
     gap: 5px;
 }
@@ -44,7 +52,7 @@ div[data-testid="stTabs"] button[role="tab"] {
     border: none;
     color: #888; /* Cor para abas não selecionadas */
     font-weight: 700;
-    font-size: 26px;
+    font-size: 30px;
     transition: all 0.2s;
     border-radius: 8px 8px 0 0;
 }
@@ -93,17 +101,17 @@ div[data-testid="stPopover"] div[data-testid="stVerticalBlock"] button:hover {
 </style>
 """, unsafe_allow_html=True)
 
+# --- CONFIGURAÇÃO DE IDIOMA ---
+# Define o idioma para pt-BR para evitar pop-up de tradução do navegador
+components.html("""
+    <script>
+        window.parent.document.documentElement.lang = 'pt-BR';
+    </script>
+""", height=0)
+
 # --- CONFIGURAÇÕES ---
 ARQUIVO_CACHE = "loto_completo_cache.json"
 ARQUIVO_PALPITES = "meus_palpites.json"
-
-# Configuração da Página Web
-st.set_page_config(
-    page_title="Lotomind Web",
-    page_icon="🍀",
-    layout="centered",
-    initial_sidebar_state="expanded"
-)
 
 # --- DEFINIÇÃO DE VARIÁVEIS DE CORES ---
 # Roxo (3 Tons)
@@ -600,14 +608,14 @@ if not st.session_state['logged_user']:
     st.stop() # Interrompe a execução aqui se não estiver logado
 
 # --- HEADER E MENU DE NAVEGAÇÃO ---
-logo_col, menu_col = st.columns([2, 3])
-with logo_col:
+c_esq, c_centro, c_dir = st.columns([1, 2, 1])
+with c_centro:
     if os.path.exists("logo.png"):
         st.image("logo.png", use_container_width=True)
     elif os.path.exists("../logo.png"):
         st.image("../logo.png", use_container_width=True)
     else:
-        st.markdown(f"<h1 style='color: {ROXO_MEDIO};'>Lotomind</h1>", unsafe_allow_html=True)
+        st.markdown(f"<h1 style='text-align: center; color: {ROXO_MEDIO};'>Lotomind</h1>", unsafe_allow_html=True)
 
 tab_inicio, tab_palpites, tab_stats = st.tabs([" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas "])
 
@@ -642,7 +650,7 @@ with tab_inicio:
             btn_gerar = st.button("✨ GERAR PALPITE", type="primary", use_container_width=True)
         
         with c_update:
-            if st.button("🔄 Atualizar", use_container_width=True):
+            if st.button("🔄 Atualizar Dados", use_container_width=True):
                 with st.spinner("Buscando dados..."):
                     novos = buscar_dados_api()
                     if novos:
@@ -822,30 +830,19 @@ with tab_palpites:
         # --- DETALHAMENTO DE ACERTOS ---
         st.markdown(f"<h4 style='color: {ROXO_MEDIO}; margin-top: 20px;'>🎯 Detalhamento de Acertos</h4>", unsafe_allow_html=True)
         
-        cols_acertos = st.columns(4)
         faixas = range(15, 4, -1) # 15 até 5
+        html_list = ""
         
-        for i, n_acertos in enumerate(faixas):
+        for n_acertos in faixas:
             qtd = contagem_faixas.get(n_acertos, 0)
-            cor_bg = "#f0f2f6"
-            cor_txt = "#333"
-            border = "1px solid #eee"
+            style_row = "display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #eee;"
             
-            if n_acertos >= 14: 
-                cor_bg = VERDE_CLARO
-                cor_txt = VERDE_ESCURO
-                border = f"1px solid {VERDE_MEDIO}"
-            elif n_acertos >= 11:
-                cor_bg = "#e8f4f8"
-                cor_txt = ROXO_MEDIO
+            if n_acertos >= 11 and qtd > 0:
+                style_row += f" background-color: {VERDE_CLARO if n_acertos >= 14 else '#e8f4f8'}; font-weight: bold; color: {VERDE_ESCURO if n_acertos >= 14 else ROXO_MEDIO}; border-radius: 5px; border-bottom: none; margin-bottom: 2px;"
             
-            with cols_acertos[i % 4]:
-                st.markdown(f"""
-                <div style="background-color: {cor_bg}; border: {border}; border-radius: 8px; padding: 10px; text-align: center; margin-bottom: 10px;">
-                    <span style="font-size: 18px; font-weight: bold; color: {cor_txt};">{qtd}</span><br>
-                    <span style="font-size: 12px; color: #666;">{n_acertos} Acertos</span>
-                </div>
-                """, unsafe_allow_html=True)
+            html_list += f'<div style="{style_row}"><span>{n_acertos} Acertos</span><span>{qtd} vezes</span></div>'
+            
+        st.markdown(f"<div style='border: 1px solid #ddd; border-radius: 10px; padding: 10px;'>{html_list}</div>", unsafe_allow_html=True)
 
         # --- NOVA ESTATÍSTICA: ANÁLISE FINANCEIRA ---
         st.markdown(f"<h4 style='color: {ROXO_MEDIO}; margin-top: 20px;'>💰 Análise Financeira (Estimada)</h4>", unsafe_allow_html=True)
@@ -968,8 +965,6 @@ with tab_palpites:
 
 # --- TELA: ESTATÍSTICAS ---
 with tab_stats:
-    st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>📊 Estatísticas (Últimos 60)</h2>", unsafe_allow_html=True)
-    
     if not dados:
         st.error("Sem dados carregados.")
     else:
@@ -988,7 +983,7 @@ with tab_stats:
             top_10 = contagem.most_common(10)
             html_hot = f"""
 <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; height: 100%;">
-<h4 style='color: {ROXO_MEDIO}; margin-top:0; text-align: center;'>🔥 Mais Sorteados (Top 10)</h4>
+<h4 style='color: {ROXO_MEDIO}; margin-top:0; text-align: center;'>🔥 Mais Sorteados </h4>
 <div style='height: 1px; background-color: #eee; margin: 10px 0;'></div>
 """
             for n, c in top_10:
@@ -1008,7 +1003,7 @@ with tab_stats:
             bottom_6 = contagem.most_common()[:-7:-1]
             html_cold = f"""
 <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; height: 100%;">
-<h4 style='color: #0c5460; margin-top:0; text-align: center;'>❄️ Menos Sorteados (Top 6)</h4>
+<h4 style='color: #0c5460; margin-top:0; text-align: center;'>❄️ Menos Sorteados </h4>
 <div style='height: 1px; background-color: #eee; margin: 10px 0;'></div>
 """
             for n, c in bottom_6:
@@ -1100,7 +1095,7 @@ with tab_stats:
 
         # --- HISTÓRICO ---
         st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("📜 Ver Histórico Completo (Tabela)"):
+        with st.expander("📜 Ver Histórico (Ultimos 60 sorteios)"):
             df_hist = pd.DataFrame([
                 {"Concurso": s['concurso'], "Data": s['data'], "Dezenas": str(sorted([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])).replace('[','').replace(']','')} 
                 for s in ult_60
