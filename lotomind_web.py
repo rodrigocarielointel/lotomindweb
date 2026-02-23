@@ -10,50 +10,14 @@ import datetime
 import time
 from supabase import create_client, Client
 from streamlit_cookies_manager import CookieManager
+import streamlit.components.v1 as components
 
 st.markdown("""
 <style>
-
-/* ===== HEADER SUPERIOR (Ajustado para Mobile) ===== */
-header[data-testid="stHeader"] {
-    background: transparent !important;
-    height: 0px !important; /* Remove altura para não ocupar espaço */
-    pointer-events: none; /* Permite clicar através do header */
-}
-
-/* Cria um botão de menu personalizado (reaproveitando o nativo) */
-[data-testid="collapsedControl"] {
-    pointer-events: auto !important; /* Reativa cliques no botão */
-    visibility: visible !important; /* Força visibilidade do botão */
-    display: block !important;
-    color: #ffffff !important;
-    background-color: #4b0082 !important; /* Roxo */
-    border-radius: 50%;
-    border: 2px solid #ffffff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    position: fixed !important;
-    top: 15px !important;
-    left: 15px !important;
-    z-index: 1000001 !important;
-    width: 40px !important; /* Garante tamanho clicável */
-    height: 40px !important;
-}
-
-/* Botão de fechar a sidebar (dentro dela) - Recolher */
-section[data-testid="stSidebar"] button[kind="header"] {
-    color: #ffffff !important;
-    background-color: #4b0082 !important; /* Roxo */
-    border-radius: 50%;
-    border: 2px solid #ffffff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-}
-
-/* ===== ESCONDE MENU 3 PONTINHOS ===== */
+/* ===== ESCONDE MENU 3 PONTINHOS E RODAPÉ ===== */
 #MainMenu {
     visibility: hidden;
 }
-
-/* ===== ESCONDE RODAPÉ ===== */
 footer {
     display: none !important;
 }
@@ -61,6 +25,69 @@ footer {
 /* ===== REMOVE ESPAÇO SUPERIOR EXTRA ===== */
 div.block-container {
     padding-top: 1rem;
+    padding-bottom: 1rem;
+}
+
+/* ===== ABAS DE NAVEGAÇÃO PRINCIPAL ===== */
+/* Alinha as abas à direita, logo abaixo do cabeçalho */
+div[data-testid="stTabs"] {
+    margin-top: -60px; 
+}
+div[data-testid="stTabs"] div[role="tablist"] {
+    justify-content: flex-end;
+    border-bottom: none !important;
+    gap: 5px;
+}
+/* Estilo das abas */
+div[data-testid="stTabs"] button[role="tab"] {
+    background-color: transparent;
+    border: none;
+    color: #888; /* Cor para abas não selecionadas */
+    font-weight: 700;
+    font-size: 26px;
+    transition: all 0.2s;
+    border-radius: 8px 8px 0 0;
+}
+div[data-testid="stTabs"] button[role="tab"]:hover {
+    color: {ROXO_MEDIO};
+    background-color: #f0f2f6;
+}
+/* Aba selecionada */
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    background-color: transparent;
+    color: {ROXO_MEDIO};
+    border-bottom: 3px solid {ROXO_MEDIO};
+    border-radius: 0;
+}
+
+/* Popover de Conta (Menu do Usuário) */
+div[data-testid="stPopover"] {
+    display: flex;
+    justify-content: flex-end; /* Alinha o botão do popover à direita */
+    width: 100% !important;
+}
+div[data-testid="stPopover"] button[data-testid="baseButton-secondary"] {
+    background-color: {ROXO_MEDIO} !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 20px;
+    padding: 5px 15px;
+}
+div[data-testid="stPopover"] button[data-testid="baseButton-secondary"]:hover {
+    background-color: {ROXO_CLARO} !important;
+    color: white !important;
+    border-color: {ROXO_CLARO} !important;
+}
+
+/* Botões dentro do Popover (Atualizar, Sair) */
+div[data-testid="stPopover"] div[data-testid="stVerticalBlock"] button {
+    background-color: {ROXO_MEDIO} !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 5px;
+}
+div[data-testid="stPopover"] div[data-testid="stVerticalBlock"] button:hover {
+    background-color: {ROXO_ESCURO} !important;
 }
 
 </style>
@@ -148,20 +175,7 @@ st.markdown(f"""
         /* Sidebar com fundo branco e borda roxa */
         [data-testid="stSidebar"] {{
             background-color: {VAR_COR_SIDEBAR_BG} !important;
-            border-right: 1px solid {VAR_COR_SIDEBAR_BORDER} !important;
-        }}
-        /* Compactar Sidebar (Subir logo e conteúdo) */
-        section[data-testid="stSidebar"] .block-container {{
-            padding-top: 0rem !important;
-            padding-bottom: 1rem !important;
-        }}
-        /* Reduzir espaçamento entre itens da sidebar */
-        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
-            gap: 0.5rem !important;
-        }}
-        /* Itens do Menu de Navegação (Radio) em Roxo Independente */
-        [data-testid="stSidebar"] .stRadio label p {{
-            color: {VAR_COR_SIDEBAR_MENU} !important;
+            border-right: 1px solid {VAR_COR_SIDEBAR_BORDER} !important; 
         }}
         /* Botões da Sidebar (Sair, Forçar Atualização) em Roxo */
         [data-testid="stSidebar"] div[data-testid="stButton"] > button {{
@@ -173,13 +187,25 @@ st.markdown(f"""
             background-color: {ROXO_ESCURO} !important;
             color: #ffffff !important;
         }}
-        /* Botão Primário (Gerar Palpite) em VERDE */
+        /* Botão Primário (Padrão - Sair) em ROXO */
         div[data-testid="stButton"] > button[kind="primary"] {{
-            background-color: {VAR_COR_BOTAO_BG} !important;
+            background-color: {ROXO_MEDIO} !important;
             color: {VAR_COR_BOTAO_TXT} !important;
             border: none;
         }}
+        /* Garante que o texto dentro do botão (tag p) seja branco */
+        div[data-testid="stButton"] > button[kind="primary"] p {{
+            color: {VAR_COR_BOTAO_TXT} !important;
+        }}
         div[data-testid="stButton"] > button[kind="primary"]:hover {{
+            background-color: {ROXO_ESCURO} !important;
+            color: {VAR_COR_BOTAO_TXT} !important;
+        }}
+        /* Botão Primário DENTRO DE ABAS (Gerar Palpite) em VERDE */
+        div[data-testid="stTabs"] div[data-testid="stButton"] > button[kind="primary"] {{
+            background-color: {VAR_COR_BOTAO_BG} !important;
+        }}
+        div[data-testid="stTabs"] div[data-testid="stButton"] > button[kind="primary"]:hover {{
             background-color: {VAR_COR_BOTAO_HOVER} !important;
             color: {VAR_COR_BOTAO_TXT} !important;
         }}
@@ -188,6 +214,10 @@ st.markdown(f"""
             background-color: #000000 !important;
             color: #ffffff !important;
             border: none !important;
+        }}
+        /* Garante texto branco no botão secundário (Salvar) */
+        section[data-testid="stMain"] div[data-testid="stButton"] > button[kind="secondary"] p {{
+            color: #ffffff !important;
         }}
         section[data-testid="stMain"] div[data-testid="stButton"] > button[kind="secondary"]:hover {{
             background-color: #333333 !important;
@@ -516,9 +546,11 @@ if not st.session_state['logged_user']:
         # Texto "Bem-vindo!" com a variável de cor
         st.markdown(f"<h3 style='color:{VAR_COR_LOGIN_BEMVINDO}; text-align: center;'>Bem-vindo!</h3>", unsafe_allow_html=True)
         
-        tab_login, tab_cadastro = st.tabs(["Entrar", "Criar Conta"])
+        # Controle de estado para alternar abas programaticamente
+        if 'login_tab_select' not in st.session_state: st.session_state['login_tab_select'] = "Entrar"
+        login_mode = st.radio("Modo", ["Entrar", "Criar Conta"], horizontal=True, label_visibility="collapsed", key="login_tab_select")
         
-        with tab_login:
+        if login_mode == "Entrar":
             with st.form("login_form"):
                 l_user = st.text_input("Usuário")
                 l_pass = st.text_input("Senha", type="password")
@@ -547,7 +579,7 @@ if not st.session_state['logged_user']:
                     if ok: st.success(msg)
                     else: st.error(msg)
 
-        with tab_cadastro:
+        else:
             with st.form("register_form"):
                 st.write("Preencha para criar sua conta:")
                 c_user = st.text_input("Escolha um Usuário")
@@ -559,68 +591,34 @@ if not st.session_state['logged_user']:
                     ok, msg = register_user_db(c_user, c_email, c_pass)
                     if ok: 
                         st.success(msg)
+                        time.sleep(1.5)
+                        st.session_state['login_tab_select'] = "Entrar"
+                        st.rerun()
                     else: 
                         st.error(msg)
 
     st.stop() # Interrompe a execução aqui se não estiver logado
 
-# --- SIDEBAR & LOGIN ---
-
-# Sidebar (Menu Lateral)
-with st.sidebar:
-    # Tenta achar o logo na pasta atual ou na anterior
+# --- HEADER E MENU DE NAVEGAÇÃO ---
+logo_col, menu_col = st.columns([2, 3])
+with logo_col:
     if os.path.exists("logo.png"):
         st.image("logo.png", use_container_width=True)
     elif os.path.exists("../logo.png"):
         st.image("../logo.png", use_container_width=True)
     else:
-        st.title("Lotomind")
-    
-    menu = st.radio(
-        "Navegação", 
-        ["Início", "Meus Palpites", "Estatísticas"],
-        key="menu_selection"
-    )
-    
-    st.markdown("---")
-    if st.button("🔄 Forçar Atualização"):
-        with st.spinner("Buscando dados na Caixa..."):
-            novos = buscar_dados_api()
-            if novos:
-                st.session_state['dados'] = novos
-                st.success("Dados atualizados!")
-            else:
-                st.error("Erro ao conectar.")
-    
-    # Botão Sair (Logout)
-    if user_email:
-        if st.button("Sair", key="btn_logout"):
-            st.session_state['logged_user'] = None
-            if 'lotomind_user' in cookie_manager:
-                del cookie_manager['lotomind_user']
-            cookie_manager.save()
-            st.rerun()
+        st.markdown(f"<h1 style='color: {ROXO_MEDIO};'>Lotomind</h1>", unsafe_allow_html=True)
+
+    # Saudação abaixo do logo
+    st.markdown(f"<div style='margin-top: 5px; color: {ROXO_MEDIO}; font-weight: bold;'>Olá, {st.session_state['logged_user']['username']}</div>", unsafe_allow_html=True)
+
+tab_inicio, tab_palpites, tab_stats = st.tabs([" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas "])
 
 dados = st.session_state['dados']
 ultimo_resultado = dados[0] if dados else None
 
 # --- TELA: INÍCIO ---
-if menu == "Início":
-    # --- INFO DO USUÁRIO NO TOPO DIREITO DA TELA PRINCIPAL ---
-    if user_email:
-        user = st.session_state['logged_user']
-        st.markdown(f"""
-        <div style="text-align: right; margin-bottom: 1rem;">
-            <span style="color: {ROXO_MEDIO}; font-weight: bold;">👤 Sua Conta</span><br>
-            <span style="color: grey; font-size: 0.9rem;">Olá, <b>{user['username']}</b>!</span>
-        </div>
-        """, unsafe_allow_html=True)
-    # ---------------------------------------------------------
-
-    # Header Moderno
-    st.markdown(f"<h1 style='text-align: center; color: {ROXO_MEDIO}; margin-bottom: 0px;'>LotoMind 🍀</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: grey; font-size: 14px; margin-top: 0px;'>Sua inteligência artificial para a Lotofácil</p>", unsafe_allow_html=True)
-    
+with tab_inicio:
     if ultimo_resultado:
         # --- HERO SECTION: PRÓXIMO CONCURSO ---
         valor_estimado = ultimo_resultado.get('valorEstimadoProximoConcurso', 0)
@@ -641,10 +639,22 @@ if menu == "Início":
         # --- GERADOR DE PALPITE (SEM ABAS) ---
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Botão de Ação Principal (Grande e Centralizado)
-        col_btn_1, col_btn_2, col_btn_3 = st.columns([1, 2, 1])
-        with col_btn_2:
-            btn_gerar = st.button("✨ GERAR JOGO INTELIGENTE", type="primary", use_container_width=True)
+        # Botões de Ação (Gerar + Atualizar)
+        c_gerar, c_update = st.columns([3, 1])
+        with c_gerar:
+            btn_gerar = st.button("✨ GERAR PALPITE", type="primary", use_container_width=True)
+        
+        with c_update:
+            if st.button("🔄 Atualizar", use_container_width=True):
+                with st.spinner("Buscando dados..."):
+                    novos = buscar_dados_api()
+                    if novos:
+                        st.session_state['dados'] = novos
+                        st.success("Atualizado!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Erro.")
         
         if btn_gerar:
             if dados and ultimo_resultado:
@@ -677,7 +687,7 @@ if menu == "Início":
             # Card do Palpite
             st.markdown(f"""
 <div style="background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 20px; text-align: center;">
-<p style="color: {ROXO_MEDIO}; font-weight: bold; margin-bottom: 15px;">SUGESTÃO DA IA</p>
+<p style="color: {ROXO_MEDIO}; font-weight: bold; margin-bottom: 15px;">SUGESTÃO</p>
 {numeros_html}
 </div>
 <div style="background-color: {VERDE_CLARO}; color: {VERDE_ESCURO}; padding: 8px; border-radius: 5px; font-size: 14px; border: 1px solid {VERDE_MEDIO}; margin-top: 10px; text-align: center;">
@@ -705,7 +715,7 @@ if menu == "Início":
                 nums_str = " ".join([f"{n:02d}" for n in jogo])
                 texto_wpp = f"🍀 *Lotomind* sugere:\nConcurso: {ultimo_resultado.get('proximoConcurso')}\n\n`{nums_str}`"
                 link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
-                st.link_button("📱 Enviar WhatsApp", link_wpp, use_container_width=True)
+                st.link_button("📱 Enviar por WhatsApp", link_wpp, use_container_width=True)
 
         # --- ÚLTIMO RESULTADO (MOVIDO PARA BAIXO) ---
         st.markdown("---")
@@ -745,50 +755,127 @@ if menu == "Início":
         """, unsafe_allow_html=True)
 
 # --- TELA: MEUS PALPITES ---
-elif menu == "Meus Palpites":
+with tab_palpites:
     st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>📜 Meus Palpites</h2>", unsafe_allow_html=True)
     palpites = carregar_palpites(user_email)
 
     if not palpites:
         st.markdown("ℹ️ *Nenhum palpite salvo nesta conta.*")
     else:
-        # Botão de limpar tudo desativado na nuvem por segurança, ou implemente delete all
-        if st.button("🔄 Atualizar Lista", key="btn_refresh_palpites"):
-            st.rerun()
         # --- CÁLCULO DAS ESTATÍSTICAS ---
         lista_acertos = []
         contagem_faixas = Counter()
+        total_ganho = 0.0
+        jogos_com_resultado = 0
 
         if dados:
             for p in palpites:
                 for sorteio in dados:
                     if str(sorteio['concurso']) == str(p.get('concurso')):
+                        jogos_com_resultado += 1
                         sorteados = [int(x) for x in (sorteio.get('dezenas') or sorteio.get('listaDezenas'))]
                         acertos = len(set(p['numeros']) & set(sorteados))
                         lista_acertos.append(acertos)
                         contagem_faixas.update([acertos])
+                        
+                        # Cálculo financeiro estimado
+                        if acertos >= 11:
+                            premio_encontrado = 0
+                            # Tenta pegar valor real da API
+                            for faixa in sorteio.get('premiacoes', []):
+                                if str(acertos) in faixa.get('descricao', ''):
+                                    premio_encontrado = faixa.get('valorPremio', 0)
+                                    break
+                            # Fallback valores fixos aproximados
+                            if premio_encontrado == 0:
+                                if acertos == 11: premio_encontrado = 6.0
+                                elif acertos == 12: premio_encontrado = 12.0
+                                elif acertos == 13: premio_encontrado = 30.0
+                            
+                            total_ganho += premio_encontrado
                         break
         
         # --- DASHBOARD DE ESTATÍSTICAS MODERNO ---
         total_jogos = len(palpites)
         media_acertos = sum(lista_acertos) / len(lista_acertos) if lista_acertos else 0
         max_acertos = max(lista_acertos) if lista_acertos else 0
+        min_acertos = min(lista_acertos) if lista_acertos else 0
         
         st.markdown(f"""
         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
             <div style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center;">
-                <span style="font-size: 28px; font-weight: bold; color: {ROXO_MEDIO};">{total_jogos}</span><br>
-                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Jogos Salvos</span>
+                <span style="font-size: 24px; font-weight: bold; color: {ROXO_MEDIO};">{total_jogos}</span><br>
+                <span style="font-size: 11px; color: #666; text-transform: uppercase;">Jogos</span>
             </div>
             <div style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center;">
-                <span style="font-size: 28px; font-weight: bold; color: {VERDE_MEDIO};">{max_acertos}</span><br>
-                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Máx. Acertos</span>
+                <span style="font-size: 24px; font-weight: bold; color: {VERDE_MEDIO};">{max_acertos}</span><br>
+                <span style="font-size: 11px; color: #666; text-transform: uppercase;">Máx. Acertos</span>
             </div>
             <div style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center;">
-                <span style="font-size: 28px; font-weight: bold; color: #333;">{media_acertos:.1f}</span><br>
-                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Média</span>
+                <span style="font-size: 24px; font-weight: bold; color: #dc3545;">{min_acertos}</span><br>
+                <span style="font-size: 11px; color: #666; text-transform: uppercase;">Mín. Acertos</span>
+            </div>
+            <div style="flex: 1; background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; text-align: center;">
+                <span style="font-size: 24px; font-weight: bold; color: #333;">{media_acertos:.1f}</span><br>
+                <span style="font-size: 11px; color: #666; text-transform: uppercase;">Média</span>
             </div>
         </div>
+        """, unsafe_allow_html=True)
+
+        # --- DETALHAMENTO DE ACERTOS ---
+        st.markdown(f"<h4 style='color: {ROXO_MEDIO}; margin-top: 20px;'>🎯 Detalhamento de Acertos</h4>", unsafe_allow_html=True)
+        
+        cols_acertos = st.columns(4)
+        faixas = range(15, 4, -1) # 15 até 5
+        
+        for i, n_acertos in enumerate(faixas):
+            qtd = contagem_faixas.get(n_acertos, 0)
+            cor_bg = "#f0f2f6"
+            cor_txt = "#333"
+            border = "1px solid #eee"
+            
+            if n_acertos >= 14: 
+                cor_bg = VERDE_CLARO
+                cor_txt = VERDE_ESCURO
+                border = f"1px solid {VERDE_MEDIO}"
+            elif n_acertos >= 11:
+                cor_bg = "#e8f4f8"
+                cor_txt = ROXO_MEDIO
+            
+            with cols_acertos[i % 4]:
+                st.markdown(f"""
+                <div style="background-color: {cor_bg}; border: {border}; border-radius: 8px; padding: 10px; text-align: center; margin-bottom: 10px;">
+                    <span style="font-size: 18px; font-weight: bold; color: {cor_txt};">{qtd}</span><br>
+                    <span style="font-size: 12px; color: #666;">{n_acertos} Acertos</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # --- NOVA ESTATÍSTICA: ANÁLISE FINANCEIRA ---
+        st.markdown(f"<h4 style='color: {ROXO_MEDIO}; margin-top: 20px;'>💰 Análise Financeira (Estimada)</h4>", unsafe_allow_html=True)
+        
+        custo_aposta = 3.00
+        total_investido = jogos_com_resultado * custo_aposta
+        lucro_prejuizo = total_ganho - total_investido
+        cor_lucro = VERDE_MEDIO if lucro_prejuizo >= 0 else "#dc3545"
+        
+        st.markdown(f"""
+        <div style="background-color: white; border: 1px solid #ddd; border-radius: 10px; padding: 20px; display: flex; justify-content: space-around; align-items: center;">
+            <div style="text-align: center;">
+                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Investido</span><br>
+                <span style="font-size: 18px; font-weight: bold; color: #333;">R$ {total_investido:,.2f}</span>
+            </div>
+            <div style="width: 1px; height: 40px; background-color: #eee;"></div>
+            <div style="text-align: center;">
+                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Retorno</span><br>
+                <span style="font-size: 18px; font-weight: bold; color: {VERDE_MEDIO};">R$ {total_ganho:,.2f}</span>
+            </div>
+            <div style="width: 1px; height: 40px; background-color: #eee;"></div>
+            <div style="text-align: center;">
+                <span style="font-size: 12px; color: #666; text-transform: uppercase;">Balanço</span><br>
+                <span style="font-size: 18px; font-weight: bold; color: {cor_lucro};">R$ {lucro_prejuizo:,.2f}</span>
+            </div>
+        </div>
+        <p style="font-size: 11px; color: #999; text-align: center; margin-top: 5px;">*Considerando apenas jogos com resultado apurado.</p>
         """, unsafe_allow_html=True)
 
         # --- BOTÃO WHATSAPP ---
@@ -883,7 +970,7 @@ elif menu == "Meus Palpites":
                             st.rerun()
 
 # --- TELA: ESTATÍSTICAS ---
-elif menu == "Estatísticas":
+with tab_stats:
     st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>📊 Estatísticas (Últimos 60)</h2>", unsafe_allow_html=True)
     
     if not dados:
@@ -1025,4 +1112,13 @@ elif menu == "Estatísticas":
 
 # Rodapé
 st.markdown("---")
-st.caption("Developed by Rodrigo Carielo | Lotomind Web Version")
+c_cred, c_sair = st.columns([4, 1])
+with c_cred:
+    st.caption("Developed by Rodrigo Carielo | Lotomind Web Version")
+with c_sair:
+    if st.button("Sair", key="btn_sair_footer", use_container_width=True, type="primary"):
+        st.session_state['logged_user'] = None
+        if 'lotomind_user' in cookie_manager:
+            del cookie_manager['lotomind_user']
+        cookie_manager.save()
+        st.rerun()
