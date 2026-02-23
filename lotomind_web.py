@@ -22,8 +22,11 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-/* ===== ESCONDE MENU 3 PONTINHOS E RODAPÉ ===== */
+/* ===== ESCONDE MENU 3 PONTINHOS, CABEÇALHO E RODAPÉ ===== */
 #MainMenu {
+    visibility: hidden;
+}
+header {
     visibility: hidden;
 }
 footer {
