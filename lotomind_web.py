@@ -378,6 +378,27 @@ def carregar_palpites(user_email=None):
             return []
     return []
 
+@st.cache_data(ttl=300)
+def carregar_todos_palpites_globais():
+    if not supabase_client: return [], {}
+    try:
+        # Busca últimos 2000 palpites para garantir pegar os recentes
+        response = supabase_client.table("palpites").select("*").order("created_at", desc=True).limit(2000).execute()
+        palpites = response.data
+        
+        # Busca usernames
+        emails = list(set([p['user_email'] for p in palpites if p.get('user_email')]))
+        users_map = {}
+        if emails:
+            # Batch request if needed, but for now direct
+            resp_u = supabase_client.table("users").select("email, username").in_("email", emails).execute()
+            for u in resp_u.data:
+                users_map[u['email']] = u['username']
+                
+        return palpites, users_map
+    except:
+        return [], {}
+
 def salvar_novo_palpite(novo_palpite, user_email=None):
     # Se tiver Supabase, salva na nuvem
     if supabase_client and user_email:
@@ -617,7 +638,7 @@ with c_centro:
     else:
         st.markdown(f"<h1 style='text-align: center; color: {ROXO_MEDIO};'>Lotomind</h1>", unsafe_allow_html=True)
 
-tab_inicio, tab_palpites, tab_stats = st.tabs([" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas "])
+tab_inicio, tab_palpites, tab_stats, tab_premios = st.tabs([" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas ", " 🏆 Premiações "])
 
 dados = st.session_state['dados']
 ultimo_resultado = dados[0] if dados else None
@@ -1101,6 +1122,85 @@ with tab_stats:
                 for s in ult_60
             ])
             st.dataframe(df_hist, hide_index=True, use_container_width=True)
+
+# --- TELA: PREMIAÇÕES ---
+with tab_premios:
+    st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>🏆 Galeria de Premiados</h2>", unsafe_allow_html=True)
+    st.caption("Palpites gerados pelo Lotomind que foram premiados.")
+    
+    all_palpites, users_map = carregar_todos_palpites_globais()
+    
+    if not all_palpites:
+        st.info("Nenhum palpite registrado na base de dados ainda.")
+    else:
+        # Processar vencedores
+        vencedores = []
+        
+        if dados: # dados = st.session_state['dados']
+            for p in all_palpites:
+                p_concurso = str(p.get('concurso'))
+                # Encontrar resultado correspondente
+                sorteio_match = next((s for s in dados if str(s['concurso']) == p_concurso), None)
+                
+                if sorteio_match:
+                    sorteados = [int(x) for x in (sorteio_match.get('dezenas') or sorteio_match.get('listaDezenas'))]
+                    numeros_palpite = p.get('numeros', [])
+                    acertos = len(set(numeros_palpite) & set(sorteados))
+                    
+                    if acertos >= 11:
+                        # Calcular prêmio
+                        premio = 0
+                        for faixa in sorteio_match.get('premiacoes', []):
+                            if str(acertos) in faixa.get('descricao', ''):
+                                premio = faixa.get('valorPremio', 0)
+                                break
+                        # Fallback valores fixos
+                        if premio == 0:
+                            if acertos == 11: premio = 6.0
+                            elif acertos == 12: premio = 12.0
+                            elif acertos == 13: premio = 30.0
+                        
+                        username = users_map.get(p.get('user_email'), p.get('user_email', 'Anônimo'))
+                        # Ocultar parte do email se não tiver username
+                        if '@' in username and username == p.get('user_email'):
+                            parts = username.split('@')
+                            username = f"{parts[0][:3]}***@{parts[1]}"
+                            
+                        vencedores.append({
+                            "username": username,
+                            "concurso": p_concurso,
+                            "acertos": acertos,
+                            "premio": premio,
+                            "numeros": numeros_palpite,
+                            "data": p.get('created_at', '')[:10]
+                        })
+        
+        if not vencedores:
+            st.info("Ainda não identificamos palpites premiados nos sorteios recentes.")
+        else:
+            # Ordenar por prêmio (maior primeiro) e depois acertos
+            vencedores.sort(key=lambda x: (x['acertos'], x['premio']), reverse=True)
+            
+            # Exibir
+            for v in vencedores:
+                cor_destaque = VERDE_MEDIO if v['acertos'] >= 14 else ROXO_MEDIO
+                bg_card = "#fdfdfd" if v['acertos'] < 14 else "#f0fff4"
+                border_card = "#eee" if v['acertos'] < 14 else VERDE_CLARO
+                
+                st.markdown(f"""
+                <div style="background-color: {bg_card}; border: 1px solid {border_card}; border-radius: 10px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: bold; color: {ROXO_MEDIO}; font-size: 16px;">👤 {v['username']}</div>
+                            <div style="font-size: 12px; color: #666;">Concurso {v['concurso']} • {v['data']}</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-weight: bold; font-size: 18px; color: {cor_destaque};">{v['acertos']} Acertos</div>
+                            <div style="font-size: 14px; color: #333; font-weight: bold;">R$ {v['premio']:,.2f}</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # Rodapé
 st.markdown("---")
