@@ -609,9 +609,6 @@ with logo_col:
     else:
         st.markdown(f"<h1 style='color: {ROXO_MEDIO};'>Lotomind</h1>", unsafe_allow_html=True)
 
-    # Saudação abaixo do logo
-    st.markdown(f"<div style='margin-top: 5px; color: {ROXO_MEDIO}; font-weight: bold;'>Olá, {st.session_state['logged_user']['username']}</div>", unsafe_allow_html=True)
-
 tab_inicio, tab_palpites, tab_stats = st.tabs([" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas "])
 
 dados = st.session_state['dados']
