@@ -241,7 +241,16 @@ st.markdown(f"""
             border: none !important;
         }}
         section[data-testid="stMain"] a[data-testid="stLinkButton"]:hover {{
-            background-color: #333333 !important;
+            background-color: #333333 !important; /* Cinza escuro para hover de links genéricos (ex: WhatsApp) */
+            color: #ffffff !important;
+        }}
+        /* Estilo específico para o botão Loterias Online */
+        .loterias-button-wrapper a[data-testid="stLinkButton"] {{
+            background-color: {ROXO_MEDIO} !important;
+            color: #ffffff !important;
+        }}
+        .loterias-button-wrapper a[data-testid="stLinkButton"]:hover {{
+            background-color: {ROXO_ESCURO} !important;
             color: #ffffff !important;
         }}
         /* SOBRESCREVE: Botão Primário DENTRO DE FORMS (Login/Cadastro) para Roxo */
@@ -366,7 +375,8 @@ def carregar_palpites(user_email=None):
     # Se tiver Supabase e usuário logado, busca do banco
     if supabase_client and user_email:
         try:
-            response = supabase_client.table("palpites").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
+            # Filtra para mostrar apenas os palpites que o usuário salvou manualmente
+            response = supabase_client.table("palpites").select("*").eq("user_email", user_email).eq("tipo", "salvo").order("created_at", desc=True).execute()
             return response.data
         except Exception as e:
             st.error(f"Erro ao carregar da nuvem: {e}")
@@ -376,7 +386,9 @@ def carregar_palpites(user_email=None):
     if os.path.exists(ARQUIVO_PALPITES):
         try:
             with open(ARQUIVO_PALPITES, "r") as f:
-                return json.load(f)
+                # Filtra para mostrar apenas os salvos manualmente no arquivo local também
+                todos_palpites = json.load(f)
+                return [p for p in todos_palpites if p.get("tipo", "salvo") == "salvo"]
         except:
             return []
     return []
@@ -704,7 +716,12 @@ with tab_inicio:
                             "numeros": jogo,
                             "confianca": confianca
                         }
-                        salvar_novo_palpite(novo_auto, user_email, tipo="gerado")
+                        # Salva e tenta capturar o ID para atualização posterior
+                        res_save = salvar_novo_palpite(novo_auto, user_email, tipo="gerado")
+                        if isinstance(res_save, int):
+                            st.session_state['palpite_id_atual'] = res_save
+                        else:
+                            st.session_state['palpite_id_atual'] = None
             else:
                 st.error("Erro ao carregar dados.")
 
@@ -743,20 +760,46 @@ with tab_inicio:
             with c_salvar:
                 # Botão Salvar com fundo PRETO (agora usa o estilo secondary customizado)
                 if st.button("💾 Salvar Palpite", use_container_width=True):
-                    novo = {
-                        "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
-                        "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
-                        "numeros": jogo,
-                        "confianca": confianca
-                    }
-                    if salvar_novo_palpite(novo, user_email, tipo="salvo"):
-                        st.toast("Palpite salvo com sucesso!", icon="✅")
+                    # Verifica se já existe um ID gerado para este palpite (evita duplicidade)
+                    pid = st.session_state.get('palpite_id_atual')
+                    
+                    if pid and user_email:
+                        # Atualiza o registro existente de 'gerado' para 'salvo'
+                        if atualizar_palpite_existente(pid, "salvo"):
+                            st.toast("Palpite salvo com sucesso!", icon="✅")
+                    else:
+                        # Comportamento padrão (Insert) caso não tenha ID capturado
+                        novo = {
+                            "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
+                            "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
+                            "numeros": jogo,
+                            "confianca": confianca
+                        }
+                        if salvar_novo_palpite(novo, user_email, tipo="salvo"):
+                            st.toast("Palpite salvo com sucesso!", icon="✅")
             
             with c_share:
                 nums_str = " ".join([f"{n:02d}" for n in jogo])
                 texto_wpp = f"🍀 *Lotomind* sugere:\nConcurso: {ultimo_resultado.get('proximoConcurso')}\n\n`{nums_str}`"
                 link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
                 st.link_button("📱 Enviar por WhatsApp", link_wpp, use_container_width=True)
+
+            # --- NOVA SEÇÃO: APOSTAR ONLINE ---
+            st.markdown("---")
+            st.subheader("🚀 Apostar Online")
+            st.info("O Lotomind **não** realiza apostas. Siga os passos abaixo para apostar no site oficial da Caixa.", icon="ℹ️")
+
+            # Passo 1: Copiar os números
+            numeros_para_copiar = " ".join([f"{n:02d}" for n in jogo])
+            st.markdown("**1. Copie os números do seu palpite:**")
+            st.code(numeros_para_copiar, language=None)
+
+            # Passo 2: Acessar o site ou app
+            st.markdown("**2. Acesse o site oficial ou o app e cole os números:**")
+            st.markdown('<div class="loterias-button-wrapper">', unsafe_allow_html=True)
+            st.link_button("➡️ Abrir Loterias Online (Lotofácil)", "https://www.loteriasonline.caixa.gov.br/silce-web/#/lotofacil", use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.caption("Você precisará fazer login no site ou app da Caixa para completar a aposta. Esta função é um atalho para o site oficial e não possui vínculo com a Caixa Econômica Federal.")
 
         # --- ÚLTIMO RESULTADO (MOVIDO PARA BAIXO) ---
         st.markdown("---")
