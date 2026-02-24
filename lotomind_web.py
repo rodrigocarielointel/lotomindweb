@@ -170,6 +170,7 @@ VAR_COR_LOGIN_LABELS = ROXO_ESCURO # Onde usar: Labels "Usuário", "Senha"
 VAR_COR_LOGIN_BOTAO_BG = ROXO_MEDIO     # Onde usar: Fundo do botão de login/cadastro
 VAR_COR_LOGIN_BOTAO_TXT = "#ffffff"     # Onde usar: Texto do botão de login/cadastro
 VAR_COR_LOGIN_BOTAO_HOVER = ROXO_ESCURO # Onde usar: Hover do botão de login/cadastro
+VAR_COR_LOGIN_RADIO_LABEL = ROXO_MEDIO  # Onde usar: Texto dos radio buttons "Entrar" e "Criar Conta"
 
 # --- ESTILOS VISUAIS (Fundo Branco + Compacto) ---
 st.markdown(f"""
@@ -277,6 +278,11 @@ st.markdown(f"""
         /* Labels de Usuário/Senha na tela de login */
         div[data-testid="stForm"] label {{
             color: {VAR_COR_LOGIN_LABELS} !important;
+        }}
+        /* Texto dos Radio Buttons de Login (Entrar / Criar Conta) */
+        div[role="radiogroup"] label p {{
+            color: {VAR_COR_LOGIN_RADIO_LABEL} !important;
+            font-weight: bold;
         }}
         /* Texto do Checkbox (Permanecer logado) em PRETO */
         div[data-testid="stForm"] [data-testid="stCheckbox"] label p,
@@ -571,6 +577,59 @@ def gerar_palpite_logica(historico, ultimo_resultado):
 
     return jogo, 60, "Gerado por exaustão (Confiança Baixa)"
 
+def analisar_metricas_resultado(resultado, historico_anterior):
+    if not historico_anterior:
+        return None
+    
+    dezenas = [int(n) for n in (resultado.get('dezenas') or resultado.get('listaDezenas'))]
+    dezenas_ant = [int(n) for n in (historico_anterior[0].get('dezenas') or historico_anterior[0].get('listaDezenas'))]
+    
+    # 1. Repetidos (8 or 9)
+    repetidos = len(set(dezenas) & set(dezenas_ant))
+    ok_repetidos = repetidos in [8, 9]
+    
+    # 2. Paridade (8/7 or 7/8)
+    pares = len([n for n in dezenas if n % 2 == 0])
+    impares = 15 - pares
+    ok_paridade = (pares == 8 and impares == 7) or (pares == 7 and impares == 8)
+    
+    # 3. Atrasados (>= 3 atrasos)
+    ult_3 = historico_anterior[:3]
+    obrigatorios_atraso = []
+    if len(ult_3) >= 3:
+        for n in range(1, 26):
+            saiu = False
+            for s in ult_3:
+                s_dezenas = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
+                if n in s_dezenas:
+                    saiu = True
+                    break
+            if not saiu:
+                obrigatorios_atraso.append(n)
+    
+    # Se havia atrasados, eles saíram?
+    if obrigatorios_atraso:
+        ok_atrasados = all(n in dezenas for n in obrigatorios_atraso)
+    else:
+        ok_atrasados = True 
+        
+    # 4. Top 10 e Bottom 6
+    ult_60 = historico_anterior[:60]
+    contagem = Counter()
+    for s in ult_60:
+        contagem.update([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])
+    
+    top_10 = [n for n, c in contagem.most_common(10)]
+    bottom_6 = [n for n, c in contagem.most_common()[-6:]]
+    
+    qtd_top10 = len([n for n in dezenas if n in top_10])
+    qtd_bottom6 = len([n for n in dezenas if n in bottom_6])
+    
+    ok_top10 = 5 <= qtd_top10 <= 7
+    ok_bottom6 = 3 <= qtd_bottom6 <= 4
+    
+    return ok_repetidos, ok_paridade, ok_atrasados, ok_top10, ok_bottom6
+
 # --- INTERFACE DO APP WEB ---
 
 # Inicialização de Estado (Memória do App)
@@ -593,6 +652,18 @@ if supabase_client and st.session_state.get('logged_user'):
     
 # --- TELA DE LOGIN / CADASTRO (BLOQUEANTE) ---
 if not st.session_state['logged_user']:
+    # Limpeza diferida dos campos de cadastro (para evitar erro de modificação de widget ativo)
+    if st.session_state.get('clear_register_form'):
+        st.session_state['reg_user'] = ""
+        st.session_state['reg_email'] = ""
+        st.session_state['reg_pass'] = ""
+        st.session_state['clear_register_form'] = False
+
+    # Troca de aba diferida (para evitar erro de modificação de widget ativo)
+    if st.session_state.get('force_login_tab'):
+        st.session_state['login_tab_select'] = "Entrar"
+        st.session_state['force_login_tab'] = False
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         # Centralizando Logo
@@ -644,17 +715,21 @@ if not st.session_state['logged_user']:
         else:
             with st.form("register_form"):
                 st.write("Preencha para criar sua conta:")
-                c_user = st.text_input("Escolha um Usuário")
-                c_email = st.text_input("Seu Email")
-                c_pass = st.text_input("Escolha uma Senha", type="password")
+                # Adicionando chaves (keys) para poder resetá-los
+                c_user = st.text_input("Escolha um Usuário", key="reg_user")
+                c_email = st.text_input("Seu Email", key="reg_email")
+                c_pass = st.text_input("Escolha uma Senha", type="password", key="reg_pass")
                 submit_cad = st.form_submit_button("Cadastrar", use_container_width=True)
                 
                 if submit_cad:
                     ok, msg = register_user_db(c_user, c_email, c_pass)
                     if ok: 
                         st.success(msg)
+                        # Marca para limpar os campos na próxima execução (evita StreamlitAPIException)
+                        st.session_state['clear_register_form'] = True
                         time.sleep(1.5)
-                        st.session_state['login_tab_select'] = "Entrar"
+                        # Muda para a aba de login
+                        st.session_state['force_login_tab'] = True
                         st.rerun()
                     else: 
                         st.error(msg)
@@ -671,7 +746,7 @@ with c_centro:
     else:
         st.markdown(f"<h1 style='text-align: center; color: {ROXO_MEDIO};'>Lotomind</h1>", unsafe_allow_html=True)
 
-tab_inicio, tab_palpites, tab_stats, tab_premios = st.tabs([" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas ", " 🏆 Premiações "])
+tab_inicio, tab_palpites, tab_stats, tab_premios, tab_static = st.tabs([" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas ", " 🏆 Premiações ", " 📈 Static Lotomind "])
 
 dados = st.session_state['dados']
 ultimo_resultado = dados[0] if dados else None
@@ -1234,11 +1309,7 @@ with tab_premios:
                             elif acertos == 12: premio = 12.0
                             elif acertos == 13: premio = 30.0
                         
-                        username = users_map.get(p.get('user_email'), p.get('user_email', 'Anônimo'))
-                        # Ocultar parte do email se não tiver username
-                        if '@' in username and username == p.get('user_email'):
-                            parts = username.split('@')
-                            username = f"{parts[0][:3]}***@{parts[1]}"
+                        username = "Usuário Lotomind"
                             
                         vencedores.append({
                             "username": username,
@@ -1284,6 +1355,129 @@ with tab_premios:
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+
+# --- TELA: STATIC LOTOMIND ---
+with tab_static:
+    st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>📈 Static Lotomind</h2>", unsafe_allow_html=True)
+    
+    # SEÇÃO 1: JOGOS DA COMUNIDADE
+    st.subheader("🌍 Jogos da Comunidade")
+    st.caption("Todos os jogos gerados e salvos pelos usuários.")
+    
+    all_palpites_static, users_map_static = carregar_todos_palpites_globais()
+    
+    if not all_palpites_static:
+        st.info("Nenhum jogo encontrado.")
+    else:
+        lista_static = []
+        for p in all_palpites_static:
+            # Identificar acertos se houver resultado
+            acertos_static = "-"
+            if dados:
+                sorteio_match = next((s for s in dados if str(s['concurso']) == str(p.get('concurso'))), None)
+                if sorteio_match:
+                    sorteados = [int(x) for x in (sorteio_match.get('dezenas') or sorteio_match.get('listaDezenas'))]
+                    acertos_static = len(set(p.get('numeros', [])) & set(sorteados))
+            
+            # Nome real do usuário
+            u_email = p.get('user_email')
+            u_name = users_map_static.get(u_email, u_email) if u_email else "Anônimo"
+            
+            lista_static.append({
+                "Usuário": u_name,
+                "Concurso": p.get('concurso'),
+                "Números": str(p.get('numeros')),
+                "Acertos": acertos_static,
+                "Tipo": p.get('tipo', 'salvo')
+            })
+        
+        df_static = pd.DataFrame(lista_static)
+        st.dataframe(df_static, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    
+    # SEÇÃO 2: ANÁLISE DE RESULTADOS (METRICAS)
+    st.subheader("🔍 Análise de Resultados (Métricas)")
+    st.caption("Verificação da efetividade das métricas do Lotomind nos últimos sorteios.")
+    
+    if dados and len(dados) > 1:
+        # --- RANKING DE MÉTRICAS ---
+        qtd_analise = len(dados) - 1
+        stats = {"Top 10": 0, "Paridade": 0, "Atrasados": 0, "Repetidos": 0, "Bottom 6": 0}
+        
+        if qtd_analise > 0:
+            for i in range(qtd_analise):
+                res = dados[i]
+                hist = dados[i+1:]
+                if not hist: continue
+                
+                metricas_result = analisar_metricas_resultado(res, hist)
+                if not metricas_result: continue
+                ok_rep, ok_par, ok_atr, ok_top, ok_bot = metricas_result
+                
+                if ok_rep: stats["Repetidos"] += 1
+                if ok_par: stats["Paridade"] += 1
+                if ok_atr: stats["Atrasados"] += 1
+                if ok_top: stats["Top 10"] += 1
+                if ok_bot: stats["Bottom 6"] += 1
+            
+            ranking = sorted(stats.items(), key=lambda x: x[1], reverse=True)
+            
+            st.markdown("### 🏆 Ranking de Métricas (Histórico Completo)")
+            html_rank = "<div style='background-color: #fff; padding: 15px; border-radius: 10px; border: 1px solid #eee; margin-bottom: 20px;'>"
+            for idx, (metrica, count) in enumerate(ranking):
+                pct = (count / qtd_analise) * 100 if qtd_analise > 0 else 0
+                cor_bar = VERDE_MEDIO if pct >= 80 else (ROXO_MEDIO if pct >= 60 else "#dc3545")
+                html_rank += f"<div style='display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 14px;'><span style='font-weight: bold; color: #555;'>{idx+1}. {metrica}</span><span style='font-weight: bold; color: {cor_bar};'>{pct:.0f}%</span></div><div style='width: 100%; background-color: #f0f0f0; height: 8px; border-radius: 4px; margin-bottom: 15px;'><div style='width: {pct}%; background-color: {cor_bar}; height: 8px; border-radius: 4px;'></div></div>"
+            html_rank += "</div>"
+            st.markdown(html_rank, unsafe_allow_html=True)
+
+        # Analisar os últimos 10 resultados
+        for i in range(min(10, len(dados)-1)):
+            res = dados[i]
+            hist = dados[i+1:] # Histórico anterior a este sorteio
+            
+            if not hist: continue
+            metricas_result = analisar_metricas_resultado(res, hist)
+            if not metricas_result: continue
+            ok_rep, ok_par, ok_atr, ok_top, ok_bot = metricas_result
+            
+            # Calculo %
+            metricas_vals = [ok_rep, ok_par, ok_atr, ok_top, ok_bot]
+            perc = (sum(metricas_vals) / 5) * 100
+            
+            cor_perc = VERDE_MEDIO if perc >= 80 else (ROXO_MEDIO if perc >= 60 else "#dc3545")
+            def fmt_bool(b): return "✅ OK" if b else "❌ Não"
+            
+            # Monta o HTML para o expander customizado
+            summary_html = f"""
+            <summary style="display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer; padding: 12px 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 10px;">
+                <h4 style="margin: 0; color: {ROXO_MEDIO}; font-size: 16px;">Concurso {res['concurso']}</h4>
+                <span style="background-color: {cor_perc}; color: white; padding: 5px 10px; border-radius: 15px; font-weight: bold; font-size: 14px;">{perc:.0f}% Efetividade</span>
+            </summary>
+            """
+
+            details_content_html = f"""
+            <div style="padding: 15px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 10px 10px; margin-top: -10px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 15px; font-size: 14px;">
+                    <div style="flex: 1; min-width: 120px;"><b>Top 10:</b> {fmt_bool(ok_top)}</div>
+                    <div style="flex: 1; min-width: 120px;"><b>Bottom 6:</b> {fmt_bool(ok_bot)}</div>
+                    <div style="flex: 1; min-width: 120px;"><b>Paridade:</b> {fmt_bool(ok_par)}</div>
+                    <div style="flex: 1; min-width: 120px;"><b>Repetidos:</b> {fmt_bool(ok_rep)}</div>
+                    <div style="flex: 1; min-width: 120px;"><b>Atrasados:</b> {fmt_bool(ok_atr)}</div>
+                </div>
+                <div style="margin-top: 15px; font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 10px;">
+                    <b>Dezenas:</b> {sorted([int(x) for x in (res.get('dezenas') or res.get('listaDezenas'))])}
+                </div>
+            </div>
+            """
+            
+            st.markdown(f"""
+            <details style='margin-bottom: 10px;'>
+                {summary_html}
+                {details_content_html}
+            </details>
+            """, unsafe_allow_html=True)
 
 # Rodapé
 st.markdown("---")
