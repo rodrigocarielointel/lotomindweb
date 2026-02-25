@@ -483,6 +483,48 @@ def buscar_dados_api():
     except:
         return None
 
+def buscar_dados_manual():
+    """Busca o último sorteio inserido manualmente no Supabase"""
+    if not supabase_client: return None
+    try:
+        response = supabase_client.table("sorteios_manuais").select("*").order("concurso", desc=True).limit(1).execute()
+        if response.data:
+            manual = response.data[0]
+            # Formata para a estrutura compatível com a API/App
+            return {
+                "concurso": manual['concurso'],
+                "data": manual['data_sorteio'],
+                "dezenas": manual['dezenas'], # Já deve vir como lista do JSONB
+                "premiacoes": [
+                    {
+                        "descricao": "15 acertos",
+                        "faixa": 1,
+                        "ganhadores": manual['ganhadores'],
+                        "valorPremio": float(manual['premio_pago'])
+                    }
+                ],
+                "proximoConcurso": manual['prox_concurso'],
+                "dataProximoConcurso": manual['prox_data'],
+                "valorEstimadoProximoConcurso": float(manual['prox_premio'])
+            }
+    except Exception as e:
+        print(f"Erro ao buscar manual: {e}")
+    return None
+
+def salvar_sorteio_manual_db(dados_sorteio):
+    """Salva os dados manuais no Supabase"""
+    if not supabase_client: return False, "Sem conexão com banco."
+    try:
+        # Verifica se já existe esse concurso para atualizar ou insere novo
+        existing = supabase_client.table("sorteios_manuais").select("id").eq("concurso", dados_sorteio['concurso']).execute()
+        if existing.data:
+            supabase_client.table("sorteios_manuais").update(dados_sorteio).eq("id", existing.data[0]['id']).execute()
+        else:
+            supabase_client.table("sorteios_manuais").insert(dados_sorteio).execute()
+        return True, "Sorteio salvo com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao salvar: {e}"
+
 # --- AUTO-LOGIN FROM COOKIE ---
 if 'logged_user' not in st.session_state:
     st.session_state['logged_user'] = None
@@ -500,20 +542,56 @@ if not st.session_state['logged_user']:
 # --------------------------
 
 def carregar_dados():
-    # Tenta carregar do cache primeiro para ser rápido
+    dados_lista = []
+    # 1. Tenta carregar do cache primeiro
     if os.path.exists(ARQUIVO_CACHE):
         try:
             with open(ARQUIVO_CACHE, "r") as f:
-                return json.load(f)
+                dados_lista = json.load(f)
         except:
             pass
-    # Se não der, busca da API
-    return buscar_dados_api()
+    
+    # 2. Se não tiver cache, busca da API
+    if not dados_lista:
+        dados_lista = buscar_dados_api() or []
 
-def gerar_palpite_logica(historico, ultimo_resultado):
+    # 3. Busca dados manuais (prioridade sobre o último sorteio)
+    manual = buscar_dados_manual()
+    if manual:
+        if not dados_lista:
+            dados_lista = [manual]
+        elif manual['concurso'] >= dados_lista[0]['concurso']:
+            # Se manual for mais novo ou igual, substitui o topo ou insere
+            if manual['concurso'] == dados_lista[0]['concurso']:
+                dados_lista[0] = manual
+            else:
+                dados_lista.insert(0, manual)
+    
+    return dados_lista
+
+def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, numeros_excluir=None):
     """Lógica original do Lotomind adaptada para função pura"""
     if not historico or not ultimo_resultado:
         return None, 0, "Dados insuficientes para gerar palpite."
+
+    numeros_incluir = numeros_incluir or []
+    numeros_excluir = numeros_excluir or []
+
+    # Define o universo de dezenas disponíveis para o sorteio
+    universo_dezenas = [n for n in range(1, 26) if n not in numeros_excluir]
+
+    # Validações de conflito
+    if len(universo_dezenas) < 15:
+        return None, 0, "Conflito: Muitas dezenas excluídas, impossível gerar jogo."
+    if any(n in numeros_excluir for n in numeros_incluir):
+        return None, 0, "Conflito: Um número não pode ser incluído e excluído ao mesmo tempo."
+
+    # Pool para a parte aleatória do jogo
+    pool_aleatorio = [n for n in universo_dezenas if n not in numeros_incluir]
+    qtd_aleatoria = 15 - len(numeros_incluir)
+
+    if len(pool_aleatorio) < qtd_aleatoria:
+        return None, 0, "Conflito: Não há dezenas suficientes para completar o jogo com as inclusões/exclusões."
 
     ult_60 = historico[:60]
     ult_3 = historico[:3]
@@ -543,7 +621,9 @@ def gerar_palpite_logica(historico, ultimo_resultado):
     tentativas = 0
     while tentativas < 5000:
         tentativas += 1
-        jogo = sorted(random.sample(range(1, 26), 15))
+        # Gera a parte aleatória e combina com os números fixos
+        parte_aleatoria = random.sample(pool_aleatorio, qtd_aleatoria)
+        jogo = sorted(numeros_incluir + parte_aleatoria)
 
         # Regras Imutáveis
         r_count = len([n for n in jogo if n in dezenas_ultimo])
@@ -746,7 +826,22 @@ with c_centro:
     else:
         st.markdown(f"<h1 style='text-align: center; color: {ROXO_MEDIO};'>Lotomind</h1>", unsafe_allow_html=True)
 
-tab_inicio, tab_palpites, tab_stats, tab_premios, tab_static = st.tabs([" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas ", " 🏆 Premiações ", " 📈 Static Lotomind "])
+# --- DEFINIÇÃO DE ABAS (COM ADMIN SE NECESSÁRIO) ---
+abas_labels = [" 🍀 Início ", " 📜 Meus Palpites ", " 📊 Estatísticas ", " 🏆 Premiações "]
+is_admin = False
+
+# Verifica se é admin
+if st.session_state.get('logged_user') and st.session_state['logged_user'].get('type') == 'admin':
+    is_admin = True
+    abas_labels.append(" 📈 Static Lotomind ")
+    abas_labels.append(" ⚙️ Admin ")
+
+tabs = st.tabs(abas_labels)
+
+# Desempacota as abas padrão
+tab_inicio, tab_palpites, tab_stats, tab_premios = tabs[0], tabs[1], tabs[2], tabs[3]
+tab_static = tabs[4] if is_admin else None
+tab_admin = tabs[5] if is_admin else None
 
 dados = st.session_state['dados']
 ultimo_resultado = dados[0] if dados else None
@@ -769,6 +864,42 @@ with tab_inicio:
 </div>
 </div>
         """, unsafe_allow_html=True)
+
+        # --- NOVA SEÇÃO: INCLUIR/EXCLUIR NÚMEROS ---
+        st.markdown("---")
+        c_incluir, c_excluir = st.columns(2)
+
+        with c_incluir:
+            c_label, c_info = st.columns([4,1])
+            with c_label:
+                st.markdown("##### ➕ Incluir Números")
+            with c_info:
+                with st.popover("ℹ️"):
+                    st.info("Force o gerador a incluir até 3 dezenas de sua preferência no palpite.")
+            
+            numeros_incluir = st.multiselect(
+                "Selecione dezenas para incluir",
+                options=list(range(1, 26)),
+                max_selections=3,
+                key="incluir_numeros",
+                label_visibility="collapsed"
+            )
+
+        with c_excluir:
+            c_label, c_info = st.columns([4,1])
+            with c_label:
+                st.markdown("##### ➖ Excluir Números")
+            with c_info:
+                with st.popover("ℹ️"):
+                    st.info("Force o gerador a NUNCA incluir até 3 dezenas de sua preferência.")
+            
+            numeros_excluir = st.multiselect(
+                "Selecione dezenas para excluir",
+                options=list(range(1, 26)),
+                max_selections=3,
+                key="excluir_numeros",
+                label_visibility="collapsed"
+            )
 
         # --- GERADOR DE PALPITE (SEM ABAS) ---
         st.markdown("<br>", unsafe_allow_html=True)
@@ -794,25 +925,31 @@ with tab_inicio:
             if dados and ultimo_resultado:
                 with st.spinner("Analisando estatísticas e padrões..."):
                     time.sleep(0.8) # Pequeno delay para sensação de processamento
-                    jogo, confianca, msg = gerar_palpite_logica(dados, ultimo_resultado)
-                    st.session_state['palpite_atual'] = jogo
-                    st.session_state['msg_palpite'] = msg
-                    st.session_state['confianca_atual'] = confianca
                     
-                    # Auto-save como "gerado" para histórico global (apenas se logado para não poluir local)
-                    if user_email:
-                        novo_auto = {
-                            "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
-                            "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
-                            "numeros": jogo,
-                            "confianca": confianca
-                        }
-                        # Salva e tenta capturar o ID para atualização posterior
-                        res_save = salvar_novo_palpite(novo_auto, user_email, tipo="gerado")
-                        if isinstance(res_save, int):
-                            st.session_state['palpite_id_atual'] = res_save
-                        else:
-                            st.session_state['palpite_id_atual'] = None
+                    # Pega os números dos widgets
+                    numeros_incluir = st.session_state.get('incluir_numeros', [])
+                    numeros_excluir = st.session_state.get('excluir_numeros', [])
+
+                    jogo, confianca, msg = gerar_palpite_logica(
+                        dados, 
+                        ultimo_resultado,
+                        numeros_incluir=numeros_incluir,
+                        numeros_excluir=numeros_excluir
+                    )
+                    
+                    if jogo is None: # Se a lógica retornar erro
+                        st.error(msg)
+                        st.session_state['palpite_atual'] = None # Limpa palpite anterior
+                    else:
+                        st.session_state['palpite_atual'] = jogo
+                        st.session_state['msg_palpite'] = msg
+                        st.session_state['confianca_atual'] = confianca
+                        
+                        # Auto-save como "gerado" para histórico global (apenas se logado)
+                        if user_email:
+                            novo_auto = { "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'), "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'), "numeros": jogo, "confianca": confianca }
+                            res_save = salvar_novo_palpite(novo_auto, user_email, tipo="gerado")
+                            st.session_state['palpite_id_atual'] = res_save if isinstance(res_save, int) else None
             else:
                 st.error("Erro ao carregar dados.")
 
@@ -1357,127 +1494,190 @@ with tab_premios:
                 """, unsafe_allow_html=True)
 
 # --- TELA: STATIC LOTOMIND ---
-with tab_static:
-    st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>📈 Static Lotomind</h2>", unsafe_allow_html=True)
-    
-    # SEÇÃO 1: JOGOS DA COMUNIDADE
-    st.subheader("🌍 Jogos da Comunidade")
-    st.caption("Todos os jogos gerados e salvos pelos usuários.")
-    
-    all_palpites_static, users_map_static = carregar_todos_palpites_globais()
-    
-    if not all_palpites_static:
-        st.info("Nenhum jogo encontrado.")
-    else:
-        lista_static = []
-        for p in all_palpites_static:
-            # Identificar acertos se houver resultado
-            acertos_static = "-"
-            if dados:
-                sorteio_match = next((s for s in dados if str(s['concurso']) == str(p.get('concurso'))), None)
-                if sorteio_match:
-                    sorteados = [int(x) for x in (sorteio_match.get('dezenas') or sorteio_match.get('listaDezenas'))]
-                    acertos_static = len(set(p.get('numeros', [])) & set(sorteados))
-            
-            # Nome real do usuário
-            u_email = p.get('user_email')
-            u_name = users_map_static.get(u_email, u_email) if u_email else "Anônimo"
-            
-            lista_static.append({
-                "Usuário": u_name,
-                "Concurso": p.get('concurso'),
-                "Números": str(p.get('numeros')),
-                "Acertos": acertos_static,
-                "Tipo": p.get('tipo', 'salvo')
-            })
+if tab_static:
+    with tab_static:
+        st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>📈 Static Lotomind</h2>", unsafe_allow_html=True)
         
-        df_static = pd.DataFrame(lista_static)
-        st.dataframe(df_static, use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-    
-    # SEÇÃO 2: ANÁLISE DE RESULTADOS (METRICAS)
-    st.subheader("🔍 Análise de Resultados (Métricas)")
-    st.caption("Verificação da efetividade das métricas do Lotomind nos últimos sorteios.")
-    
-    if dados and len(dados) > 1:
-        # --- RANKING DE MÉTRICAS ---
-        qtd_analise = len(dados) - 1
-        stats = {"Top 10": 0, "Paridade": 0, "Atrasados": 0, "Repetidos": 0, "Bottom 6": 0}
+        # SEÇÃO 1: JOGOS DA COMUNIDADE
+        st.subheader("🌍 Jogos da Comunidade")
+        st.caption("Todos os jogos gerados e salvos pelos usuários.")
         
-        if qtd_analise > 0:
-            for i in range(qtd_analise):
-                res = dados[i]
-                hist = dados[i+1:]
-                if not hist: continue
+        all_palpites_static, users_map_static = carregar_todos_palpites_globais()
+        
+        if not all_palpites_static:
+            st.info("Nenhum jogo encontrado.")
+        else:
+            lista_static = []
+            for p in all_palpites_static:
+                # Identificar acertos se houver resultado
+                acertos_static = "-"
+                if dados:
+                    sorteio_match = next((s for s in dados if str(s['concurso']) == str(p.get('concurso'))), None)
+                    if sorteio_match:
+                        sorteados = [int(x) for x in (sorteio_match.get('dezenas') or sorteio_match.get('listaDezenas'))]
+                        acertos_static = len(set(p.get('numeros', [])) & set(sorteados))
                 
+                # Nome real do usuário
+                u_email = p.get('user_email')
+                u_name = users_map_static.get(u_email, u_email) if u_email else "Anônimo"
+                
+                lista_static.append({
+                    "Usuário": u_name,
+                    "Concurso": p.get('concurso'),
+                    "Números": str(p.get('numeros')),
+                    "Acertos": acertos_static,
+                    "Tipo": p.get('tipo', 'salvo')
+                })
+            
+            df_static = pd.DataFrame(lista_static)
+            st.dataframe(df_static, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        
+        # SEÇÃO 2: ANÁLISE DE RESULTADOS (METRICAS)
+        st.subheader("🔍 Análise de Resultados (Métricas)")
+        st.caption("Verificação da efetividade das métricas do Lotomind nos últimos sorteios.")
+        
+        if dados and len(dados) > 1:
+            # --- RANKING DE MÉTRICAS ---
+            qtd_analise = len(dados) - 1
+            stats = {"Top 10": 0, "Paridade": 0, "Atrasados": 0, "Repetidos": 0, "Bottom 6": 0}
+            
+            if qtd_analise > 0:
+                for i in range(qtd_analise):
+                    res = dados[i]
+                    hist = dados[i+1:]
+                    if not hist: continue
+                    
+                    metricas_result = analisar_metricas_resultado(res, hist)
+                    if not metricas_result: continue
+                    ok_rep, ok_par, ok_atr, ok_top, ok_bot = metricas_result
+                    
+                    if ok_rep: stats["Repetidos"] += 1
+                    if ok_par: stats["Paridade"] += 1
+                    if ok_atr: stats["Atrasados"] += 1
+                    if ok_top: stats["Top 10"] += 1
+                    if ok_bot: stats["Bottom 6"] += 1
+                
+                ranking = sorted(stats.items(), key=lambda x: x[1], reverse=True)
+                
+                st.markdown("### 🏆 Ranking de Métricas (Histórico Completo)")
+                html_rank = "<div style='background-color: #fff; padding: 15px; border-radius: 10px; border: 1px solid #eee; margin-bottom: 20px;'>"
+                for idx, (metrica, count) in enumerate(ranking):
+                    pct = (count / qtd_analise) * 100 if qtd_analise > 0 else 0
+                    cor_bar = VERDE_MEDIO if pct >= 80 else (ROXO_MEDIO if pct >= 60 else "#dc3545")
+                    html_rank += f"<div style='display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 14px;'><span style='font-weight: bold; color: #555;'>{idx+1}. {metrica}</span><span style='font-weight: bold; color: {cor_bar};'>{pct:.0f}%</span></div><div style='width: 100%; background-color: #f0f0f0; height: 8px; border-radius: 4px; margin-bottom: 15px;'><div style='width: {pct}%; background-color: {cor_bar}; height: 8px; border-radius: 4px;'></div></div>"
+                html_rank += "</div>"
+                st.markdown(html_rank, unsafe_allow_html=True)
+
+            # Analisar os últimos 10 resultados
+            for i in range(min(10, len(dados)-1)):
+                res = dados[i]
+                hist = dados[i+1:] # Histórico anterior a este sorteio
+                
+                if not hist: continue
                 metricas_result = analisar_metricas_resultado(res, hist)
                 if not metricas_result: continue
                 ok_rep, ok_par, ok_atr, ok_top, ok_bot = metricas_result
                 
-                if ok_rep: stats["Repetidos"] += 1
-                if ok_par: stats["Paridade"] += 1
-                if ok_atr: stats["Atrasados"] += 1
-                if ok_top: stats["Top 10"] += 1
-                if ok_bot: stats["Bottom 6"] += 1
-            
-            ranking = sorted(stats.items(), key=lambda x: x[1], reverse=True)
-            
-            st.markdown("### 🏆 Ranking de Métricas (Histórico Completo)")
-            html_rank = "<div style='background-color: #fff; padding: 15px; border-radius: 10px; border: 1px solid #eee; margin-bottom: 20px;'>"
-            for idx, (metrica, count) in enumerate(ranking):
-                pct = (count / qtd_analise) * 100 if qtd_analise > 0 else 0
-                cor_bar = VERDE_MEDIO if pct >= 80 else (ROXO_MEDIO if pct >= 60 else "#dc3545")
-                html_rank += f"<div style='display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 14px;'><span style='font-weight: bold; color: #555;'>{idx+1}. {metrica}</span><span style='font-weight: bold; color: {cor_bar};'>{pct:.0f}%</span></div><div style='width: 100%; background-color: #f0f0f0; height: 8px; border-radius: 4px; margin-bottom: 15px;'><div style='width: {pct}%; background-color: {cor_bar}; height: 8px; border-radius: 4px;'></div></div>"
-            html_rank += "</div>"
-            st.markdown(html_rank, unsafe_allow_html=True)
+                # Calculo %
+                metricas_vals = [ok_rep, ok_par, ok_atr, ok_top, ok_bot]
+                perc = (sum(metricas_vals) / 5) * 100
+                
+                cor_perc = VERDE_MEDIO if perc >= 80 else (ROXO_MEDIO if perc >= 60 else "#dc3545")
+                def fmt_bool(b): return "✅ OK" if b else "❌ Não"
+                
+                # Monta o HTML para o expander customizado
+                summary_html = f"""
+                <summary style="display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer; padding: 12px 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 10px;">
+                    <h4 style="margin: 0; color: {ROXO_MEDIO}; font-size: 16px;">Concurso {res['concurso']}</h4>
+                    <span style="background-color: {cor_perc}; color: white; padding: 5px 10px; border-radius: 15px; font-weight: bold; font-size: 14px;">{perc:.0f}% Efetividade</span>
+                </summary>
+                """
 
-        # Analisar os últimos 10 resultados
-        for i in range(min(10, len(dados)-1)):
-            res = dados[i]
-            hist = dados[i+1:] # Histórico anterior a este sorteio
-            
-            if not hist: continue
-            metricas_result = analisar_metricas_resultado(res, hist)
-            if not metricas_result: continue
-            ok_rep, ok_par, ok_atr, ok_top, ok_bot = metricas_result
-            
-            # Calculo %
-            metricas_vals = [ok_rep, ok_par, ok_atr, ok_top, ok_bot]
-            perc = (sum(metricas_vals) / 5) * 100
-            
-            cor_perc = VERDE_MEDIO if perc >= 80 else (ROXO_MEDIO if perc >= 60 else "#dc3545")
-            def fmt_bool(b): return "✅ OK" if b else "❌ Não"
-            
-            # Monta o HTML para o expander customizado
-            summary_html = f"""
-            <summary style="display: flex; justify-content: space-between; align-items: center; width: 100%; cursor: pointer; padding: 12px 15px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 10px;">
-                <h4 style="margin: 0; color: {ROXO_MEDIO}; font-size: 16px;">Concurso {res['concurso']}</h4>
-                <span style="background-color: {cor_perc}; color: white; padding: 5px 10px; border-radius: 15px; font-weight: bold; font-size: 14px;">{perc:.0f}% Efetividade</span>
-            </summary>
-            """
+                details_content_html = f"""
+                <div style="padding: 15px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 10px 10px; margin-top: -10px;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 15px; font-size: 14px;">
+                        <div style="flex: 1; min-width: 120px;"><b>Top 10:</b> {fmt_bool(ok_top)}</div>
+                        <div style="flex: 1; min-width: 120px;"><b>Bottom 6:</b> {fmt_bool(ok_bot)}</div>
+                        <div style="flex: 1; min-width: 120px;"><b>Paridade:</b> {fmt_bool(ok_par)}</div>
+                        <div style="flex: 1; min-width: 120px;"><b>Repetidos:</b> {fmt_bool(ok_rep)}</div>
+                        <div style="flex: 1; min-width: 120px;"><b>Atrasados:</b> {fmt_bool(ok_atr)}</div>
+                    </div>
+                    <div style="margin-top: 15px; font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 10px;">
+                        <b>Dezenas:</b> {sorted([int(x) for x in (res.get('dezenas') or res.get('listaDezenas'))])}
+                    </div>
+                </div>
+                """
+                
+                st.markdown(f"""
+                <details style='margin-bottom: 10px;'>
+                    {summary_html}
+                    {details_content_html}
+                </details>
+                """, unsafe_allow_html=True)
 
-            details_content_html = f"""
-            <div style="padding: 15px; border: 1px solid #ddd; border-top: none; border-radius: 0 0 10px 10px; margin-top: -10px;">
-                <div style="display: flex; flex-wrap: wrap; gap: 15px; font-size: 14px;">
-                    <div style="flex: 1; min-width: 120px;"><b>Top 10:</b> {fmt_bool(ok_top)}</div>
-                    <div style="flex: 1; min-width: 120px;"><b>Bottom 6:</b> {fmt_bool(ok_bot)}</div>
-                    <div style="flex: 1; min-width: 120px;"><b>Paridade:</b> {fmt_bool(ok_par)}</div>
-                    <div style="flex: 1; min-width: 120px;"><b>Repetidos:</b> {fmt_bool(ok_rep)}</div>
-                    <div style="flex: 1; min-width: 120px;"><b>Atrasados:</b> {fmt_bool(ok_atr)}</div>
-                </div>
-                <div style="margin-top: 15px; font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 10px;">
-                    <b>Dezenas:</b> {sorted([int(x) for x in (res.get('dezenas') or res.get('listaDezenas'))])}
-                </div>
-            </div>
-            """
+# --- TELA: ADMIN (VISÍVEL APENAS PARA ADMINS) ---
+if is_admin and tab_admin:
+    with tab_admin:
+        st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>⚙️ Administração</h2>", unsafe_allow_html=True)
+        st.info("Utilize esta tela para inserir manualmente os dados do sorteio caso a API esteja instável.")
+        
+        with st.form("form_admin_sorteio_main"):
+            st.subheader("📝 Dados do Último Sorteio Realizado")
+            c_adm_1, c_adm_2 = st.columns(2)
+            with c_adm_1:
+                adm_concurso = st.number_input("Concurso", min_value=1, step=1, value=int(ultimo_resultado['concurso']) if ultimo_resultado else 3000)
+                adm_data = st.text_input("Data do Sorteio (dd/mm/aaaa)", value=ultimo_resultado.get('data', datetime.datetime.now().strftime('%d/%m/%Y')) if ultimo_resultado else "")
+            with c_adm_2:
+                # Tenta pegar ganhadores e premio do ultimo resultado para preencher
+                last_ganhadores = 0
+                last_premio = 0.0
+                if ultimo_resultado and ultimo_resultado.get('premiacoes'):
+                    last_ganhadores = ultimo_resultado['premiacoes'][0].get('ganhadores', 0)
+                    last_premio = ultimo_resultado['premiacoes'][0].get('valorPremio', 0.0)
+                
+                adm_ganhadores = st.number_input("Ganhadores (15 acertos)", min_value=0, step=1, value=int(last_ganhadores))
+                adm_premio = st.number_input("Prêmio Pago (R$)", min_value=0.0, step=1000.0, format="%.2f", value=float(last_premio))
             
-            st.markdown(f"""
-            <details style='margin-bottom: 10px;'>
-                {summary_html}
-                {details_content_html}
-            </details>
-            """, unsafe_allow_html=True)
+            st.markdown("**Números Sorteados:**")
+            # Multiselect para as dezenas
+            default_dezenas = [int(x) for x in (ultimo_resultado.get('dezenas') or ultimo_resultado.get('listaDezenas'))] if ultimo_resultado else []
+            adm_dezenas = st.multiselect("Selecione as 15 dezenas:", options=list(range(1, 26)), default=default_dezenas)
+            
+            st.markdown("---")
+            st.subheader("🔮 Dados do Próximo Sorteio")
+            c_prox_1, c_prox_2, c_prox_3 = st.columns(3)
+            with c_prox_1:
+                adm_prox_concurso = st.number_input("Próximo Concurso", min_value=1, step=1, value=int(ultimo_resultado.get('proximoConcurso', adm_concurso + 1)) if ultimo_resultado else adm_concurso + 1)
+            with c_prox_2:
+                adm_prox_data = st.text_input("Data Próximo (dd/mm/aaaa)", value=ultimo_resultado.get('dataProximoConcurso', '') if ultimo_resultado else "")
+            with c_prox_3:
+                adm_prox_premio = st.number_input("Estimativa Prêmio (R$)", min_value=0.0, step=100000.0, format="%.2f", value=float(ultimo_resultado.get('valorEstimadoProximoConcurso', 1700000.0)) if ultimo_resultado else 1700000.0)
+            
+            btn_salvar_manual = st.form_submit_button("💾 Salvar Sorteio Manual", type="primary", use_container_width=True)
+            
+            if btn_salvar_manual:
+                if len(adm_dezenas) != 15:
+                    st.error("Selecione exatamente 15 dezenas.")
+                else:
+                    payload = {
+                        "concurso": adm_concurso,
+                        "data_sorteio": adm_data,
+                        "dezenas": sorted(adm_dezenas),
+                        "ganhadores": adm_ganhadores,
+                        "premio_pago": adm_premio,
+                        "prox_concurso": adm_prox_concurso,
+                        "prox_data": adm_prox_data,
+                        "prox_premio": adm_prox_premio
+                    }
+                    ok, msg = salvar_sorteio_manual_db(payload)
+                    if ok: 
+                        st.success(msg)
+                        st.session_state['dados'] = carregar_dados() # Recarrega dados
+                        time.sleep(1)
+                        st.rerun()
+                    else: st.error(msg)
 
 # Rodapé
 st.markdown("---")
