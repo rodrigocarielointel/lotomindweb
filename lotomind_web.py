@@ -381,8 +381,8 @@ def carregar_palpites(user_email=None):
     # Se tiver Supabase e usuário logado, busca do banco
     if supabase_client and user_email:
         try:
-            # Filtra para mostrar apenas os palpites que o usuário salvou manualmente
-            response = supabase_client.table("palpites").select("*").eq("user_email", user_email).eq("tipo", "salvo").order("created_at", desc=True).execute()
+            # Busca todos os palpites do usuário, ordenados por data de criação
+            response = supabase_client.table("palpites").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
             return response.data
         except Exception as e:
             st.error(f"Erro ao carregar da nuvem: {e}")
@@ -392,9 +392,8 @@ def carregar_palpites(user_email=None):
     if os.path.exists(ARQUIVO_PALPITES):
         try:
             with open(ARQUIVO_PALPITES, "r") as f:
-                # Filtra para mostrar apenas os salvos manualmente no arquivo local também
-                todos_palpites = json.load(f)
-                return [p for p in todos_palpites if p.get("tipo", "salvo") == "salvo"]
+                # Carrega todos os palpites do arquivo local
+                return json.load(f)
         except:
             return []
     return []
@@ -420,7 +419,20 @@ def carregar_todos_palpites_globais():
     except:
         return [], {}
 
-def salvar_novo_palpite(novo_palpite, user_email=None, tipo="salvo"):
+def get_palpites_for_concurso(concurso_num):
+    """Busca todos os palpites já gerados para um concurso específico."""
+    if not supabase_client or not concurso_num:
+        return []
+    try:
+        # Busca apenas a coluna 'numeros' para otimizar
+        response = supabase_client.table("palpites").select("numeros").eq("concurso", concurso_num).execute()
+        # Retorna uma lista de listas de números. Ex: [[1,2,3...], [4,5,6...]]
+        return [p['numeros'] for p in response.data if 'numeros' in p]
+    except Exception as e:
+        print(f"Erro ao buscar palpites para o concurso {concurso_num}: {e}")
+        return []
+
+def salvar_novo_palpite(novo_palpite, user_email=None, tipo="gerado"):
     # Se tiver Supabase, salva na nuvem
     if supabase_client and user_email:
         # Adiciona o email ao objeto antes de salvar
@@ -444,17 +456,6 @@ def salvar_novo_palpite(novo_palpite, user_email=None, tipo="salvo"):
         json.dump(palpites_locais, f, indent=4)
     return True
 
-def atualizar_palpite_existente(palpite_id, novo_tipo="salvo"):
-    """Atualiza o 'tipo' de um palpite existente no banco de dados."""
-    if supabase_client and palpite_id:
-        try:
-            supabase_client.table("palpites").update({"tipo": novo_tipo}).eq("id", palpite_id).execute()
-            return True
-        except Exception as e:
-            st.error(f"Erro ao atualizar palpite: {e}")
-            return False
-    return False
-
 def excluir_palpite(palpite_id, user_email=None, index_local=None):
     if supabase_client and user_email and palpite_id:
         try:
@@ -472,29 +473,56 @@ def excluir_palpite(palpite_id, user_email=None, index_local=None):
             return True
     return False
 
+def salvar_palpites_estudo_db(palpites_para_salvar):
+    """Salva uma lista de palpites de estudo no banco de dados."""
+    if not supabase_client or not palpites_para_salvar:
+        return False, "Sem conexão ou sem palpites para salvar."
+    try:
+        # O método insert do Supabase aceita uma lista de dicionários
+        supabase_client.table("palpites_estudo").insert(palpites_para_salvar).execute()
+        return True, f"{len(palpites_para_salvar)} palpites de estudo salvos com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao salvar palpites de estudo: {e}"
+
+def carregar_palpites_estudo(concurso_num=None):
+    """Carrega palpites de estudo. Se concurso_num for fornecido, filtra por ele."""
+    if not supabase_client: return []
+    try:
+        query = supabase_client.table("palpites_estudo").select("concurso, numeros, confianca")
+        if concurso_num:
+            query = query.eq("concurso", concurso_num)
+        
+        response = query.order("concurso", desc=True).execute()
+        return response.data
+    except Exception as e:
+        print(f"Erro ao carregar palpites de estudo: {e}")
+        return []
+
 def buscar_dados_api():
     try:
         r = requests.get("https://loteriascaixa-api.herokuapp.com/api/lotofacil/", timeout=7)
         if r.status_code == 200:
-            dados = r.json()[:60] # Pega os últimos 60
+            dados = r.json()[:63] # Pega os últimos 63 (Ajustado para Atraso Quântico)
             with open(ARQUIVO_CACHE, "w") as f:
                 json.dump(dados, f)
             return dados
     except:
         return None
 
-def buscar_dados_manual():
-    """Busca o último sorteio inserido manualmente no Supabase"""
-    if not supabase_client: return None
+def buscar_dados_manuais():
+    """Busca TODOS os sorteios inseridos manualmente no Supabase"""
+    if not supabase_client: return []
     try:
-        response = supabase_client.table("sorteios_manuais").select("*").order("concurso", desc=True).limit(1).execute()
-        if response.data:
-            manual = response.data[0]
-            # Formata para a estrutura compatível com a API/App
-            return {
+        response = supabase_client.table("sorteios_manuais").select("*").order("concurso", desc=True).execute()
+        if not response.data:
+            return []
+        
+        dados_formatados = []
+        for manual in response.data:
+            dados_formatados.append({
                 "concurso": manual['concurso'],
                 "data": manual['data_sorteio'],
-                "dezenas": manual['dezenas'], # Já deve vir como lista do JSONB
+                "dezenas": manual['dezenas'],
                 "premiacoes": [
                     {
                         "descricao": "15 acertos",
@@ -506,10 +534,11 @@ def buscar_dados_manual():
                 "proximoConcurso": manual['prox_concurso'],
                 "dataProximoConcurso": manual['prox_data'],
                 "valorEstimadoProximoConcurso": float(manual['prox_premio'])
-            }
+            })
+        return dados_formatados
     except Exception as e:
-        print(f"Erro ao buscar manual: {e}")
-    return None
+        print(f"Erro ao buscar dados manuais: {e}")
+        return []
 
 def salvar_sorteio_manual_db(dados_sorteio):
     """Salva os dados manuais no Supabase"""
@@ -555,27 +584,110 @@ def carregar_dados():
     if not dados_lista:
         dados_lista = buscar_dados_api() or []
 
-    # 3. Busca dados manuais (prioridade sobre o último sorteio)
-    manual = buscar_dados_manual()
-    if manual:
-        if not dados_lista:
-            dados_lista = [manual]
-        elif manual['concurso'] >= dados_lista[0]['concurso']:
-            # Se manual for mais novo ou igual, substitui o topo ou insere
-            if manual['concurso'] == dados_lista[0]['concurso']:
-                dados_lista[0] = manual
-            else:
-                dados_lista.insert(0, manual)
+    # 3. Busca TODOS os dados manuais e faz o merge para garantir que entrem nas estatísticas
+    dados_manuais = buscar_dados_manuais()
+    if dados_manuais:
+        # Cria um dicionário para merge eficiente, dando prioridade aos dados da API/Cache inicialmente
+        concursos_merged = {d['concurso']: d for d in dados_lista}
+        
+        # Sobrescreve ou adiciona os dados manuais
+        for manual in dados_manuais:
+            concursos_merged[manual['concurso']] = manual
+            
+        # Converte de volta para lista e ordena
+        dados_lista = sorted(concursos_merged.values(), key=lambda x: x['concurso'], reverse=True)
     
     return dados_lista
 
-def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, numeros_excluir=None):
+def check_max_sequence(numbers, max_len=4):
+    """Verifica se a maior sequência de números consecutivos é no máximo max_len."""
+    if not numbers or len(numbers) < max_len + 1:
+        return True
+    sorted_numbers = sorted(numbers)
+    max_seq = 0
+    current_seq = 1
+    for i in range(1, len(sorted_numbers)):
+        if sorted_numbers[i] == sorted_numbers[i-1] + 1:
+            current_seq += 1
+        else:
+            max_seq = max(max_seq, current_seq)
+            current_seq = 1
+    max_seq = max(max_seq, current_seq)
+    return max_seq <= max_len
+
+def rastreador_faltantes_ciclo4(historico):
+    """
+    Analisa os últimos 3 sorteios e retorna as dezenas que ainda não saíram.
+    Essas são as dezenas 'faltantes' para fechar o ciclo de 4.
+    """
+    if len(historico) < 3:
+        return []
+
+    ultimos_3_sorteios = historico[:3]
+    dezenas_sorteadas_no_ciclo = set()
+
+    for sorteio in ultimos_3_sorteios:
+        dezenas = [int(n) for n in (sorteio.get('dezenas') or sorteio.get('listaDezenas'))]
+        dezenas_sorteadas_no_ciclo.update(dezenas)
+
+    universo_completo = set(range(1, 26))
+    dezenas_faltantes = sorted(list(universo_completo - dezenas_sorteadas_no_ciclo))
+    
+    return dezenas_faltantes
+
+def analisar_atraso_quantico(historico):
+    """
+    Calcula o 'Atraso Quântico' com base em 63 sorteios.
+    Retorna: (lista_alta_probabilidade, lista_ouro)
+    """
+    if not historico: return [], []
+    
+    # Limite de 63 sorteios para análise
+    hist_analise = historico[:63]
+    
+    # 1. Top 5 mais sorteadas nos últimos 63
+    all_nums = []
+    for s in hist_analise:
+        all_nums.extend([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])
+    
+    contagem = Counter(all_nums)
+    top_5 = [n for n, c in contagem.most_common(5)]
+    
+    # 2. Calcular atraso atual de todas as dezenas (1 a 25)
+    atrasos = {}
+    for n in range(1, 26):
+        curr_atraso = 0
+        for s in historico:
+            nums = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
+            if n not in nums:
+                curr_atraso += 1
+            else:
+                break
+        atrasos[n] = curr_atraso
+        
+    dezenas_alta_prob = []
+    dezenas_ouro = []
+    
+    # Regra 1: Top 5 com Atraso == 2 (Alta Probabilidade)
+    for n in top_5:
+        if atrasos[n] == 2:
+            dezenas_alta_prob.append(n)
+            
+    # Regra 2: Qualquer dezena com Atraso 3 ou 4 (Dezena de Ouro)
+    for n in range(1, 26):
+        if atrasos[n] in [3, 4]:
+            dezenas_ouro.append(n)
+            
+    return sorted(list(set(dezenas_alta_prob))), sorted(list(set(dezenas_ouro)))
+
+def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, numeros_excluir=None, palpites_existentes=None):
     """Lógica original do Lotomind adaptada para função pura"""
     if not historico or not ultimo_resultado:
         return None, 0, "Dados insuficientes para gerar palpite."
 
     numeros_incluir = numeros_incluir or []
     numeros_excluir = numeros_excluir or []
+    palpites_existentes = palpites_existentes or []
 
     # Define o universo de dezenas disponíveis para o sorteio
     universo_dezenas = [n for n in range(1, 26) if n not in numeros_excluir]
@@ -593,14 +705,14 @@ def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, nume
     if len(pool_aleatorio) < qtd_aleatoria:
         return None, 0, "Conflito: Não há dezenas suficientes para completar o jogo com as inclusões/exclusões."
 
-    ult_60 = historico[:60]
+    ult_40 = historico[:40]
     ult_3 = historico[:3]
     
     dezenas_ultimo = [int(n) for n in (ultimo_resultado.get('dezenas') or ultimo_resultado.get('listaDezenas'))]
 
     # Frequência
     contagem = Counter()
-    for s in ult_60:
+    for s in ult_40:
         contagem.update([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])
     
     top_10 = [n for n, c in contagem.most_common(10)]
@@ -618,44 +730,90 @@ def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, nume
         if not saiu_nos_3: 
             obrigatorios_atraso.append(n)
 
+    # NOVA MÉTRICA: Rastreador de Faltantes (Ciclo de 4)
+    dezenas_obrigatorias_ciclo = rastreador_faltantes_ciclo4(historico)
+    # Requisito: incluir pelo menos 80% dessas dezenas
+    min_ciclo_obrigatorias = int(len(dezenas_obrigatorias_ciclo) * 0.8)
+
+    # NOVA MÉTRICA: Atraso Quântico
+    dz_alta_prob, dz_ouro = analisar_atraso_quantico(historico)
+    
+    # Unifica para validação (prioridade máxima) e remove excluídos pelo usuário
+    dz_quanticas_obrigatorias = set(dz_alta_prob + dz_ouro)
+    dz_quanticas_obrigatorias = [n for n in dz_quanticas_obrigatorias if n not in numeros_excluir]
+    
+    # Regra de inclusão: Se houver poucas (<= 5), obriga todas. Se houver muitas, 80%.
+    if len(dz_quanticas_obrigatorias) <= 5:
+        min_quantico = len(dz_quanticas_obrigatorias)
+    else:
+        min_quantico = int(len(dz_quanticas_obrigatorias) * 0.8)
+
     tentativas = 0
-    while tentativas < 5000:
+    while tentativas < 10000: # Limite aumentado para garantir unicidade
         tentativas += 1
         # Gera a parte aleatória e combina com os números fixos
         parte_aleatoria = random.sample(pool_aleatorio, qtd_aleatoria)
         jogo = sorted(numeros_incluir + parte_aleatoria)
 
-        # Regras Imutáveis
+        # NOVA REGRA: Garantir que o palpite é único para este concurso
+        if jogo in palpites_existentes:
+            continue # Jogo já existe, gera outro
+
+        # --- Verificação de todas as 6 métricas ---
+
+        # 1. Repetidos
         r_count = len([n for n in jogo if n in dezenas_ultimo])
-        if r_count not in [8, 9]: continue
-        
-        # Regra: 8 impares e 7 pares ou 8 pares e 7 impares (obrigatorio)
+        repetidos_ok = r_count in [8, 9]
+        if not repetidos_ok: continue
+
+        # 2. Paridade
         pares = len([n for n in jogo if n % 2 == 0])
         impares = 15 - pares
-        if not ((impares == 8 and pares == 7) or (impares == 7 and pares == 8)): continue
+        paridade_ok = (impares == 8 and pares == 7) or (impares == 7 and pares == 8)
+        if not paridade_ok: continue
+
+        # 3. Atrasados
+        atrasados_ok = all(n in jogo for n in obrigatorios_atraso)
+        if not atrasados_ok: continue
+
+        # 4. Sequencial (NOVA)
+        sequencial_ok = check_max_sequence(jogo, 5)
+        if not sequencial_ok: continue
+
+        # NOVA REGRA OBRIGATÓRIA: Rastreador de Faltantes
+        qtd_ciclo_presentes = len([n for n in jogo if n in dezenas_obrigatorias_ciclo])
+        ciclo_faltantes_ok = qtd_ciclo_presentes >= min_ciclo_obrigatorias
+        if not ciclo_faltantes_ok: continue
+
+        # NOVA REGRA OBRIGATÓRIA: Atraso Quântico
+        qtd_quantico_presentes = len([n for n in jogo if n in dz_quanticas_obrigatorias])
+        quantico_ok = qtd_quantico_presentes >= min_quantico
+        if not quantico_ok: continue
+
+        # 7. Top 10 (Obrigatório)
+        top10_ok = 5 <= len([n for n in jogo if n in top_10]) <= 7
+        if not top10_ok: continue
         
-        # Regra: numero que tiver atrasado a 3 ou + sorteios (obrigatorio)
-        if not all(n in jogo for n in obrigatorios_atraso): continue
+        # 8. Bottom 6 (Obrigatório)
+        bottom6_ok = 3 <= len([n for n in jogo if n in bottom_6]) <= 4
+        if not bottom6_ok: continue
 
-        # Regras Flexíveis
-        t_ok = 5 <= len([n for n in jogo if n in top_10]) <= 7
-        b_ok = 3 <= len([n for n in jogo if n in bottom_6]) <= 4
-
-        # Cálculo de Confiança (3 obrigatórias = 60%, + 20% cada flexível)
-        confianca = 60
-        if t_ok: confianca += 20
-        if b_ok: confianca += 20
+        # --- Novo Cálculo de Confiança (baseado em 8 métricas) ---
+        metricas_atendidas = sum([
+            repetidos_ok, paridade_ok, atrasados_ok, sequencial_ok, 
+            ciclo_faltantes_ok, quantico_ok, top10_ok, bottom6_ok
+        ])
+        confianca = int((metricas_atendidas / 8) * 100)
 
         # Se atingir 100% ou estourar o limite de tentativas
-        if confianca == 100 or tentativas > 4500:
+        if confianca == 100 or tentativas > 9500: # Ajustado para o novo limite
             motivos = []
-            if not t_ok: motivos.append("Top10 fora")
-            if not b_ok: motivos.append("Bottom6 fora")
+            # A lógica de motivos não é mais necessária, pois todas as regras são obrigatórias para 100%
             
             msg = "Todas as métricas atendidas!" if not motivos else f"Ajuste: {', '.join(motivos)}"
             return jogo, confianca, f"Confiança: {confianca}% | {msg}"
 
-    return jogo, 60, "Gerado por exaustão (Confiança Baixa)"
+    return None, 0, "Não foi possível gerar um palpite exclusivo que atenda a todas as métricas. Tente novamente."
 
 def analisar_metricas_resultado(resultado, historico_anterior):
     if not historico_anterior:
@@ -694,9 +852,9 @@ def analisar_metricas_resultado(resultado, historico_anterior):
         ok_atrasados = True 
         
     # 4. Top 10 e Bottom 6
-    ult_60 = historico_anterior[:60]
+    ult_40 = historico_anterior[:40]
     contagem = Counter()
-    for s in ult_60:
+    for s in ult_40:
         contagem.update([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])
     
     top_10 = [n for n, c in contagem.most_common(10)]
@@ -708,7 +866,26 @@ def analisar_metricas_resultado(resultado, historico_anterior):
     ok_top10 = 5 <= qtd_top10 <= 7
     ok_bottom6 = 3 <= qtd_bottom6 <= 4
     
-    return ok_repetidos, ok_paridade, ok_atrasados, ok_top10, ok_bottom6
+    # 5. Sequencial (NOVA)
+    ok_sequencial = check_max_sequence(dezenas, 5)
+    
+    # 6. Rastreador de Faltantes
+    dezenas_obrigatorias_ciclo = rastreador_faltantes_ciclo4(historico_anterior)
+    min_ciclo_obrigatorias = int(len(dezenas_obrigatorias_ciclo) * 0.8)
+    qtd_ciclo_presentes = len([n for n in dezenas if n in dezenas_obrigatorias_ciclo])
+    ok_rastreador_faltantes = qtd_ciclo_presentes >= min_ciclo_obrigatorias
+
+    # 7. Atraso Quântico
+    dz_alta_prob, dz_ouro = analisar_atraso_quantico(historico_anterior)
+    dz_quanticas_obrigatorias = set(dz_alta_prob + dz_ouro)
+    if len(dz_quanticas_obrigatorias) <= 5:
+        min_quantico = len(dz_quanticas_obrigatorias)
+    else:
+        min_quantico = int(len(dz_quanticas_obrigatorias) * 0.8)
+    qtd_quantico_presentes = len([n for n in dezenas if n in dz_quanticas_obrigatorias])
+    ok_atraso_quantico = qtd_quantico_presentes >= min_quantico
+    
+    return ok_repetidos, ok_paridade, ok_atrasados, ok_top10, ok_bottom6, ok_sequencial, ok_rastreador_faltantes, ok_atraso_quantico
 
 # --- INTERFACE DO APP WEB ---
 
@@ -773,6 +950,7 @@ if not st.session_state['logged_user']:
                 if submit_login:
                     if not supabase_client:
                         st.error("Erro de conexão com banco de dados.")
+                        st.error("Erro de conexão. Verifique se as credenciais do banco de dados (secrets) estão configuradas.")
                     else:
                         u = login_user_db(l_user, l_pass)
                         if u:
@@ -833,6 +1011,7 @@ is_admin = False
 # Verifica se é admin
 if st.session_state.get('logged_user') and st.session_state['logged_user'].get('type') == 'admin':
     is_admin = True
+    abas_labels.append("🔬 Estudo")
     abas_labels.append(" 📈 Static Lotomind ")
     abas_labels.append(" ⚙️ Admin ")
 
@@ -840,8 +1019,9 @@ tabs = st.tabs(abas_labels)
 
 # Desempacota as abas padrão
 tab_inicio, tab_palpites, tab_stats, tab_premios = tabs[0], tabs[1], tabs[2], tabs[3]
-tab_static = tabs[4] if is_admin else None
-tab_admin = tabs[5] if is_admin else None
+tab_estudo = tabs[4] if is_admin else None
+tab_static = tabs[5] if is_admin else None
+tab_admin = tabs[6] if is_admin else None
 
 dados = st.session_state['dados']
 ultimo_resultado = dados[0] if dados else None
@@ -930,11 +1110,21 @@ with tab_inicio:
                     numeros_incluir = st.session_state.get('incluir_numeros', [])
                     numeros_excluir = st.session_state.get('excluir_numeros', [])
 
+                    # NOVA LÓGICA: Buscar palpites existentes para garantir exclusividade
+                    proximo_concurso = ultimo_resultado.get('proximoConcurso')
+                    palpites_ja_gerados = []
+                    if proximo_concurso:
+                        palpites_ja_gerados = get_palpites_for_concurso(proximo_concurso)
+                        if palpites_ja_gerados:
+                            # Usar st.toast para uma notificação discreta
+                            st.toast(f"Verificando {len(palpites_ja_gerados)} palpites existentes para garantir exclusividade...", icon="🛡️")
+
                     jogo, confianca, msg = gerar_palpite_logica(
                         dados, 
                         ultimo_resultado,
                         numeros_incluir=numeros_incluir,
-                        numeros_excluir=numeros_excluir
+                        numeros_excluir=numeros_excluir,
+                        palpites_existentes=palpites_ja_gerados # Passa a lista de palpites
                     )
                     
                     if jogo is None: # Se a lógica retornar erro
@@ -948,7 +1138,7 @@ with tab_inicio:
                         # Auto-save como "gerado" para histórico global (apenas se logado)
                         if user_email:
                             novo_auto = { "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'), "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'), "numeros": jogo, "confianca": confianca }
-                            res_save = salvar_novo_palpite(novo_auto, user_email, tipo="gerado")
+                            res_save = salvar_novo_palpite(novo_auto, user_email)
                             st.session_state['palpite_id_atual'] = res_save if isinstance(res_save, int) else None
             else:
                 st.error("Erro ao carregar dados.")
@@ -983,34 +1173,11 @@ with tab_inicio:
             
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Botões de Ação Secundários
-            c_salvar, c_share = st.columns(2)
-            with c_salvar:
-                # Botão Salvar com fundo PRETO (agora usa o estilo secondary customizado)
-                if st.button("💾 Salvar Palpite", use_container_width=True):
-                    # Verifica se já existe um ID gerado para este palpite (evita duplicidade)
-                    pid = st.session_state.get('palpite_id_atual')
-                    
-                    if pid and user_email:
-                        # Atualiza o registro existente de 'gerado' para 'salvo'
-                        if atualizar_palpite_existente(pid, "salvo"):
-                            st.toast("Palpite salvo com sucesso!", icon="✅")
-                    else:
-                        # Comportamento padrão (Insert) caso não tenha ID capturado
-                        novo = {
-                            "concurso": ultimo_resultado.get('proximoConcurso', 'N/A'),
-                            "data": ultimo_resultado.get('dataProximoConcurso', 'S/D'),
-                            "numeros": jogo,
-                            "confianca": confianca
-                        }
-                        if salvar_novo_palpite(novo, user_email, tipo="salvo"):
-                            st.toast("Palpite salvo com sucesso!", icon="✅")
-            
-            with c_share:
-                nums_str = " ".join([f"{n:02d}" for n in jogo])
-                texto_wpp = f"🍀 *Lotomind* sugere:\nConcurso: {ultimo_resultado.get('proximoConcurso')}\n\n`{nums_str}`"
-                link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
-                st.link_button("📱 Enviar por WhatsApp", link_wpp, use_container_width=True)
+            # Botão de compartilhamento
+            nums_str = " ".join([f"{n:02d}" for n in jogo])
+            texto_wpp = f"🍀 *Lotomind* sugere:\nConcurso: {ultimo_resultado.get('proximoConcurso')}\n\n`{nums_str}`"
+            link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wpp)}"
+            st.link_button("📱 Enviar por WhatsApp", link_wpp, use_container_width=True)
 
             # --- NOVA SEÇÃO: APOSTAR ONLINE ---
             st.markdown("---")
@@ -1275,9 +1442,9 @@ with tab_stats:
     if not dados:
         st.error("Sem dados carregados.")
     else:
-        ult_60 = dados[:60]
+        ult_40 = dados[:40]
         all_nums = []
-        for s in ult_60:
+        for s in ult_40:
             all_nums.extend([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])
         
         contagem = Counter(all_nums)
@@ -1402,10 +1569,10 @@ with tab_stats:
 
         # --- HISTÓRICO ---
         st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("📜 Ver Histórico (Ultimos 60 sorteios)"):
+        with st.expander("📜 Ver Histórico (Ultimos 40 sorteios)"):
             df_hist = pd.DataFrame([
                 {"Concurso": s['concurso'], "Data": s['data'], "Dezenas": str(sorted([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])).replace('[','').replace(']','')} 
-                for s in ult_60
+                for s in ult_40
             ])
             st.dataframe(df_hist, hide_index=True, use_container_width=True)
 
@@ -1470,20 +1637,12 @@ with tab_premios:
                 bg_card = "#fdfdfd" if v['acertos'] < 14 else "#f0fff4"
                 border_card = "#eee" if v['acertos'] < 14 else VERDE_CLARO
                 
-                # Badge de Tipo
-                tipo_str = v.get('tipo', 'salvo')
-                if tipo_str == 'salvo':
-                    badge_html = f"<span style='background-color: {ROXO_MEDIO}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; text-transform: uppercase;'>💾 Salvo</span>"
-                else:
-                    badge_html = f"<span style='background-color: #6c757d; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; text-transform: uppercase;'>🎲 Gerado</span>"
-                
                 st.markdown(f"""
                 <div style="background-color: {bg_card}; border: 1px solid {border_card}; border-radius: 10px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <div style="font-weight: bold; color: {ROXO_MEDIO}; font-size: 16px;">👤 {v['username']}</div>
                             <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Concurso {v['concurso']} • {v['data']}</div>
-                            {badge_html}
                         </div>
                         <div style="text-align: right;">
                             <div style="font-weight: bold; font-size: 18px; color: {cor_destaque};">{v['acertos']} Acertos</div>
@@ -1525,8 +1684,7 @@ if tab_static:
                     "Usuário": u_name,
                     "Concurso": p.get('concurso'),
                     "Números": str(p.get('numeros')),
-                    "Acertos": acertos_static,
-                    "Tipo": p.get('tipo', 'salvo')
+                    "Acertos": acertos_static
                 })
             
             df_static = pd.DataFrame(lista_static)
@@ -1541,7 +1699,7 @@ if tab_static:
         if dados and len(dados) > 1:
             # --- RANKING DE MÉTRICAS ---
             qtd_analise = len(dados) - 1
-            stats = {"Top 10": 0, "Paridade": 0, "Atrasados": 0, "Repetidos": 0, "Bottom 6": 0}
+            stats = {"Top 10": 0, "Paridade": 0, "Atrasados": 0, "Repetidos": 0, "Bottom 6": 0, "Sequencial": 0, "Rastreador Faltantes": 0, "Atraso Quântico": 0}
             
             if qtd_analise > 0:
                 for i in range(qtd_analise):
@@ -1551,13 +1709,16 @@ if tab_static:
                     
                     metricas_result = analisar_metricas_resultado(res, hist)
                     if not metricas_result: continue
-                    ok_rep, ok_par, ok_atr, ok_top, ok_bot = metricas_result
+                    ok_rep, ok_par, ok_atr, ok_top, ok_bot, ok_seq, ok_rastreador, ok_quantico = metricas_result
                     
                     if ok_rep: stats["Repetidos"] += 1
                     if ok_par: stats["Paridade"] += 1
                     if ok_atr: stats["Atrasados"] += 1
                     if ok_top: stats["Top 10"] += 1
                     if ok_bot: stats["Bottom 6"] += 1
+                    if ok_seq: stats["Sequencial"] += 1
+                    if ok_rastreador: stats["Rastreador Faltantes"] += 1
+                    if ok_quantico: stats["Atraso Quântico"] += 1
                 
                 ranking = sorted(stats.items(), key=lambda x: x[1], reverse=True)
                 
@@ -1578,11 +1739,11 @@ if tab_static:
                 if not hist: continue
                 metricas_result = analisar_metricas_resultado(res, hist)
                 if not metricas_result: continue
-                ok_rep, ok_par, ok_atr, ok_top, ok_bot = metricas_result
+                ok_rep, ok_par, ok_atr, ok_top, ok_bot, ok_seq, ok_rastreador, ok_quantico = metricas_result
                 
                 # Calculo %
-                metricas_vals = [ok_rep, ok_par, ok_atr, ok_top, ok_bot]
-                perc = (sum(metricas_vals) / 5) * 100
+                metricas_vals = [ok_rep, ok_par, ok_atr, ok_top, ok_bot, ok_seq, ok_rastreador, ok_quantico]
+                perc = (sum(metricas_vals) / 8) * 100
                 
                 cor_perc = VERDE_MEDIO if perc >= 80 else (ROXO_MEDIO if perc >= 60 else "#dc3545")
                 def fmt_bool(b): return "✅ OK" if b else "❌ Não"
@@ -1603,6 +1764,9 @@ if tab_static:
                         <div style="flex: 1; min-width: 120px;"><b>Paridade:</b> {fmt_bool(ok_par)}</div>
                         <div style="flex: 1; min-width: 120px;"><b>Repetidos:</b> {fmt_bool(ok_rep)}</div>
                         <div style="flex: 1; min-width: 120px;"><b>Atrasados:</b> {fmt_bool(ok_atr)}</div>
+                        <div style="flex: 1; min-width: 120px;"><b>Sequencial:</b> {fmt_bool(ok_seq)}</div>
+                        <div style="flex: 1; min-width: 120px;"><b>Rastreador:</b> {fmt_bool(ok_rastreador)}</div>
+                        <div style="flex: 1; min-width: 120px;"><b>Atraso Quântico:</b> {fmt_bool(ok_quantico)}</div>
                     </div>
                     <div style="margin-top: 15px; font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 10px;">
                         <b>Dezenas:</b> {sorted([int(x) for x in (res.get('dezenas') or res.get('listaDezenas'))])}
@@ -1616,6 +1780,174 @@ if tab_static:
                     {details_content_html}
                 </details>
                 """, unsafe_allow_html=True)
+
+# --- TELA: ESTUDO (ADMIN) ---
+if is_admin and tab_estudo:
+    with tab_estudo:
+        st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>🔬 Estudo de Desempenho</h2>", unsafe_allow_html=True)
+        st.info("Esta tela gera 100 jogos para o próximo sorteio para avaliar o desempenho das métricas do Lotomind. Os jogos aqui são independentes dos palpites dos usuários.")
+
+        if ultimo_resultado:
+            proximo_concurso_estudo = ultimo_resultado.get('proximoConcurso')
+            st.subheader(f"Geração para o Concurso: {proximo_concurso_estudo}")
+
+            # Verifica se já existem jogos de estudo para o próximo concurso
+            jogos_estudo_existentes = carregar_palpites_estudo(proximo_concurso_estudo)
+
+            if jogos_estudo_existentes:
+                st.success(f"{len(jogos_estudo_existentes)} jogos de estudo já foram gerados para este concurso.")
+                with st.expander("Ver jogos gerados"):
+                    df_estudo_gerado = pd.DataFrame(jogos_estudo_existentes)
+                    st.dataframe(df_estudo_gerado, use_container_width=True, hide_index=True)
+            else:
+                if st.button(f"🤖 Gerar 100 Jogos de Estudo para o Concurso {proximo_concurso_estudo}", type="primary", use_container_width=True):
+                    with st.spinner("Gerando 100 palpites exclusivos... Isso pode levar um minuto."):
+                        # Busca todos os palpites de usuários para garantir exclusividade total
+                        palpites_usuarios_existentes = get_palpites_for_concurso(proximo_concurso_estudo)
+                        
+                        palpites_gerados_estudo = []
+                        palpites_para_salvar_db = []
+                        
+                        # A lista de jogos existentes é a soma dos jogos de usuários + os que acabamos de gerar no estudo
+                        todos_palpites_existentes = palpites_usuarios_existentes.copy()
+
+                        for i in range(100):
+                            jogo, confianca, msg = gerar_palpite_logica(
+                                dados,
+                                ultimo_resultado,
+                                palpites_existentes=todos_palpites_existentes
+                            )
+                            if jogo:
+                                palpites_gerados_estudo.append(jogo)
+                                todos_palpites_existentes.append(jogo) # Adiciona à lista para a próxima iteração
+                                palpites_para_salvar_db.append({
+                                    "concurso": proximo_concurso_estudo,
+                                    "numeros": jogo,
+                                    "confianca": confianca
+                                })
+                            else:
+                                st.warning(f"Não foi possível gerar o palpite de número {i+1}. Parando a geração.")
+                                break
+                        
+                        if palpites_para_salvar_db:
+                            ok, msg_save = salvar_palpites_estudo_db(palpites_para_salvar_db)
+                            if ok:
+                                st.success(msg_save)
+                                st.rerun() # Recarrega a página para mostrar o status de "já gerado"
+                            else:
+                                st.error(msg_save)
+        
+        st.markdown("---")
+        st.subheader("🔍 Análise de Desempenho")
+
+        # Pega todos os concursos que têm jogos de estudo
+        todos_jogos_estudo = carregar_palpites_estudo()
+        concursos_com_estudo = sorted(list(set([p['concurso'] for p in todos_jogos_estudo])), reverse=True)
+
+        if not concursos_com_estudo:
+            st.write("Nenhum estudo foi gerado ainda.")
+        else:
+            concurso_selecionado = st.selectbox("Selecione um concurso para analisar:", concursos_com_estudo)
+
+            if concurso_selecionado:
+                # Encontra o resultado real do sorteio
+                resultado_real = next((s for s in dados if str(s['concurso']) == str(concurso_selecionado)), None)
+
+                if not resultado_real:
+                    st.warning(f"Aguardando o resultado do concurso {concurso_selecionado} ser divulgado.")
+                else:
+                    dezenas_sorteadas = [int(x) for x in (resultado_real.get('dezenas') or resultado_real.get('listaDezenas'))]
+                    
+                    # Filtra os jogos de estudo para o concurso selecionado
+                    jogos_do_concurso = [p for p in todos_jogos_estudo if p['concurso'] == concurso_selecionado]
+
+                    st.markdown(f"**Analisando {len(jogos_do_concurso)} jogos contra o resultado do concurso {concurso_selecionado}:**")
+                    st.code(str(sorted(dezenas_sorteadas)), language=None)
+
+                    contagem_acertos = Counter()
+                    total_ganho_estudo = 0.0
+                    
+                    # Lista para armazenar resultados detalhados
+                    resultados_detalhados = []
+
+                    for jogo_estudo in jogos_do_concurso:
+                        acertos = len(set(jogo_estudo['numeros']) & set(dezenas_sorteadas))
+                        contagem_acertos.update([acertos])
+
+                        # Adiciona à lista detalhada
+                        resultados_detalhados.append({
+                            "Palpite": str(jogo_estudo['numeros']),
+                            "Acertos": acertos,
+                            "Confiança (%)": jogo_estudo.get('confianca', '-')
+                        })
+
+                        # Cálculo financeiro
+                        if acertos >= 11:
+                            premio_encontrado = 0
+                            for faixa in resultado_real.get('premiacoes', []):
+                                if str(acertos) in faixa.get('descricao', ''):
+                                    premio_encontrado = faixa.get('valorPremio', 0)
+                                    break
+                            if premio_encontrado == 0:
+                                if acertos == 11: premio_encontrado = 6.0
+                                elif acertos == 12: premio_encontrado = 12.0
+                                elif acertos == 13: premio_encontrado = 30.0
+                            
+                            total_ganho_estudo += premio_encontrado
+                    
+                    # Exibição da tabela de resultados detalhados
+                    st.markdown(f"<h4 style='color: {ROXO_MEDIO}; margin-top: 20px;'>📝 Palpites e Acertos</h4>", unsafe_allow_html=True)
+                    df_resultados = pd.DataFrame(resultados_detalhados).sort_values(by="Acertos", ascending=False)
+                    
+                    def highlight_winners(row):
+                        color = VERDE_CLARO if row.Acertos >= 11 else ''
+                        return [f'background-color: {color}' for _ in row]
+                    
+                    st.dataframe(
+                        df_resultados.style.apply(highlight_winners, axis=1),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    st.markdown(f"<h4 style='color: {ROXO_MEDIO}; margin-top: 20px;'>🎯 Resumo de Acertos</h4>", unsafe_allow_html=True)
+                    
+                    faixas_estudo = range(15, 10, -1) # 15 a 11
+                    html_list_estudo = ""
+                    for n_acertos in faixas_estudo:
+                        qtd = contagem_acertos.get(n_acertos, 0)
+                        style_row = "display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #eee;"
+                        if qtd > 0:
+                            style_row += f" background-color: {VERDE_CLARO}; font-weight: bold; color: {VERDE_ESCURO}; border-radius: 5px; border-bottom: none; margin-bottom: 2px;"
+                        
+                        html_list_estudo += f'<div style="{style_row}"><span>{n_acertos} Acertos</span><span>{qtd} jogos</span></div>'
+                    
+                    st.markdown(f"<div style='border: 1px solid #ddd; border-radius: 10px; padding: 10px;'>{html_list_estudo}</div>", unsafe_allow_html=True)
+
+                    # Análise financeira do estudo
+                    custo_aposta_estudo = 3.00
+                    total_investido_estudo = len(jogos_do_concurso) * custo_aposta_estudo
+                    lucro_prejuizo_estudo = total_ganho_estudo - total_investido_estudo
+                    cor_lucro_estudo = VERDE_MEDIO if lucro_prejuizo_estudo >= 0 else "#dc3545"
+
+                    st.markdown(f"<h4 style='color: {ROXO_MEDIO}; margin-top: 20px;'>💰 Análise Financeira do Estudo</h4>", unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div style="background-color: white; border: 1px solid #ddd; border-radius: 10px; padding: 20px; display: flex; justify-content: space-around; align-items: center;">
+                        <div style="text-align: center;">
+                            <span style="font-size: 12px; color: #666; text-transform: uppercase;">Investido</span><br>
+                            <span style="font-size: 18px; font-weight: bold; color: #333;">R$ {total_investido_estudo:,.2f}</span>
+                        </div>
+                        <div style="width: 1px; height: 40px; background-color: #eee;"></div>
+                        <div style="text-align: center;">
+                            <span style="font-size: 12px; color: #666; text-transform: uppercase;">Retorno</span><br>
+                            <span style="font-size: 18px; font-weight: bold; color: {VERDE_MEDIO};">R$ {total_ganho_estudo:,.2f}</span>
+                        </div>
+                        <div style="width: 1px; height: 40px; background-color: #eee;"></div>
+                        <div style="text-align: center;">
+                            <span style="font-size: 12px; color: #666; text-transform: uppercase;">Balanço</span><br>
+                            <span style="font-size: 18px; font-weight: bold; color: {cor_lucro_estudo};">R$ {lucro_prejuizo_estudo:,.2f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
 # --- TELA: ADMIN (VISÍVEL APENAS PARA ADMINS) ---
 if is_admin and tab_admin:
