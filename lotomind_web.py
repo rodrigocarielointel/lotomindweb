@@ -635,51 +635,6 @@ def rastreador_faltantes_ciclo4(historico):
     
     return dezenas_faltantes
 
-def analisar_atraso_quantico(historico):
-    """
-    Calcula o 'Atraso Quântico' com base em 63 sorteios.
-    Retorna: (lista_alta_probabilidade, lista_ouro)
-    """
-    if not historico: return [], []
-    
-    # Limite de 63 sorteios para análise
-    hist_analise = historico[:63]
-    
-    # 1. Top 5 mais sorteadas nos últimos 63
-    all_nums = []
-    for s in hist_analise:
-        all_nums.extend([int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))])
-    
-    contagem = Counter(all_nums)
-    top_5 = [n for n, c in contagem.most_common(5)]
-    
-    # 2. Calcular atraso atual de todas as dezenas (1 a 25)
-    atrasos = {}
-    for n in range(1, 26):
-        curr_atraso = 0
-        for s in historico:
-            nums = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
-            if n not in nums:
-                curr_atraso += 1
-            else:
-                break
-        atrasos[n] = curr_atraso
-        
-    dezenas_alta_prob = []
-    dezenas_ouro = []
-    
-    # Regra 1: Top 5 com Atraso == 2 (Alta Probabilidade)
-    for n in top_5:
-        if atrasos[n] == 2:
-            dezenas_alta_prob.append(n)
-            
-    # Regra 2: Qualquer dezena com Atraso 3 ou 4 (Dezena de Ouro)
-    for n in range(1, 26):
-        if atrasos[n] in [3, 4]:
-            dezenas_ouro.append(n)
-            
-    return sorted(list(set(dezenas_alta_prob))), sorted(list(set(dezenas_ouro)))
-
 def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, numeros_excluir=None, palpites_existentes=None):
     """Lógica original do Lotomind adaptada para função pura"""
     if not historico or not ultimo_resultado:
@@ -718,35 +673,10 @@ def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, nume
     top_10 = [n for n, c in contagem.most_common(10)]
     bottom_6 = [n for n, c in contagem.most_common()[-6:]]
 
-    # Atrasados (Obrigatórios pela lógica original)
-    obrigatorios_atraso = []
-    for n in range(1, 26):
-        saiu_nos_3 = False
-        for s in ult_3:
-            res_sorteio = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
-            if n in res_sorteio: 
-                saiu_nos_3 = True
-                break
-        if not saiu_nos_3: 
-            obrigatorios_atraso.append(n)
-
     # NOVA MÉTRICA: Rastreador de Faltantes (Ciclo de 4)
     dezenas_obrigatorias_ciclo = rastreador_faltantes_ciclo4(historico)
     # Requisito: incluir pelo menos 80% dessas dezenas
     min_ciclo_obrigatorias = int(len(dezenas_obrigatorias_ciclo) * 0.8)
-
-    # NOVA MÉTRICA: Atraso Quântico
-    dz_alta_prob, dz_ouro = analisar_atraso_quantico(historico)
-    
-    # Unifica para validação (prioridade máxima) e remove excluídos pelo usuário
-    dz_quanticas_obrigatorias = set(dz_alta_prob + dz_ouro)
-    dz_quanticas_obrigatorias = [n for n in dz_quanticas_obrigatorias if n not in numeros_excluir]
-    
-    # Regra de inclusão: Se houver poucas (<= 5), obriga todas. Se houver muitas, 80%.
-    if len(dz_quanticas_obrigatorias) <= 5:
-        min_quantico = len(dz_quanticas_obrigatorias)
-    else:
-        min_quantico = int(len(dz_quanticas_obrigatorias) * 0.8)
 
     tentativas = 0
     while tentativas < 10000: # Limite aumentado para garantir unicidade
@@ -772,10 +702,6 @@ def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, nume
         paridade_ok = (impares == 8 and pares == 7) or (impares == 7 and pares == 8)
         if not paridade_ok: continue
 
-        # 3. Atrasados
-        atrasados_ok = all(n in jogo for n in obrigatorios_atraso)
-        if not atrasados_ok: continue
-
         # 4. Sequencial (NOVA)
         sequencial_ok = check_max_sequence(jogo, 5)
         if not sequencial_ok: continue
@@ -785,11 +711,6 @@ def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, nume
         ciclo_faltantes_ok = qtd_ciclo_presentes >= min_ciclo_obrigatorias
         if not ciclo_faltantes_ok: continue
 
-        # NOVA REGRA OBRIGATÓRIA: Atraso Quântico
-        qtd_quantico_presentes = len([n for n in jogo if n in dz_quanticas_obrigatorias])
-        quantico_ok = qtd_quantico_presentes >= min_quantico
-        if not quantico_ok: continue
-
         # 7. Top 10 (Obrigatório)
         top10_ok = 5 <= len([n for n in jogo if n in top_10]) <= 7
         if not top10_ok: continue
@@ -798,12 +719,12 @@ def gerar_palpite_logica(historico, ultimo_resultado, numeros_incluir=None, nume
         bottom6_ok = 3 <= len([n for n in jogo if n in bottom_6]) <= 4
         if not bottom6_ok: continue
 
-        # --- Novo Cálculo de Confiança (baseado em 8 métricas) ---
+        # --- Novo Cálculo de Confiança (baseado em 6 métricas) ---
         metricas_atendidas = sum([
-            repetidos_ok, paridade_ok, atrasados_ok, sequencial_ok, 
-            ciclo_faltantes_ok, quantico_ok, top10_ok, bottom6_ok
+            repetidos_ok, paridade_ok, sequencial_ok, 
+            ciclo_faltantes_ok, top10_ok, bottom6_ok
         ])
-        confianca = int((metricas_atendidas / 8) * 100)
+        confianca = int((metricas_atendidas / 6) * 100)
 
         # Se atingir 100% ou estourar o limite de tentativas
         if confianca == 100 or tentativas > 9500: # Ajustado para o novo limite
@@ -831,26 +752,6 @@ def analisar_metricas_resultado(resultado, historico_anterior):
     impares = 15 - pares
     ok_paridade = (pares == 8 and impares == 7) or (pares == 7 and impares == 8)
     
-    # 3. Atrasados (>= 3 atrasos)
-    ult_3 = historico_anterior[:3]
-    obrigatorios_atraso = []
-    if len(ult_3) >= 3:
-        for n in range(1, 26):
-            saiu = False
-            for s in ult_3:
-                s_dezenas = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
-                if n in s_dezenas:
-                    saiu = True
-                    break
-            if not saiu:
-                obrigatorios_atraso.append(n)
-    
-    # Se havia atrasados, eles saíram?
-    if obrigatorios_atraso:
-        ok_atrasados = all(n in dezenas for n in obrigatorios_atraso)
-    else:
-        ok_atrasados = True 
-        
     # 4. Top 10 e Bottom 6
     ult_40 = historico_anterior[:40]
     contagem = Counter()
@@ -875,17 +776,7 @@ def analisar_metricas_resultado(resultado, historico_anterior):
     qtd_ciclo_presentes = len([n for n in dezenas if n in dezenas_obrigatorias_ciclo])
     ok_rastreador_faltantes = qtd_ciclo_presentes >= min_ciclo_obrigatorias
 
-    # 7. Atraso Quântico
-    dz_alta_prob, dz_ouro = analisar_atraso_quantico(historico_anterior)
-    dz_quanticas_obrigatorias = set(dz_alta_prob + dz_ouro)
-    if len(dz_quanticas_obrigatorias) <= 5:
-        min_quantico = len(dz_quanticas_obrigatorias)
-    else:
-        min_quantico = int(len(dz_quanticas_obrigatorias) * 0.8)
-    qtd_quantico_presentes = len([n for n in dezenas if n in dz_quanticas_obrigatorias])
-    ok_atraso_quantico = qtd_quantico_presentes >= min_quantico
-    
-    return ok_repetidos, ok_paridade, ok_atrasados, ok_top10, ok_bottom6, ok_sequencial, ok_rastreador_faltantes, ok_atraso_quantico
+    return ok_repetidos, ok_paridade, ok_top10, ok_bottom6, ok_sequencial, ok_rastreador_faltantes
 
 # --- INTERFACE DO APP WEB ---
 
@@ -1495,20 +1386,10 @@ with tab_stats:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Cálculos de Atraso e Sequência
-        atrasados = []
+        # Cálculos de Sequência
         sequencias = []
 
         for n in range(1, 26):
-            # Atraso
-            curr_atraso = 0
-            for s in dados:
-                nums = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
-                if n not in nums: curr_atraso += 1
-                else: break
-            if curr_atraso >= 2:
-                atrasados.append((n, curr_atraso))
-
             # Sequência
             curr_seq = 0
             for s in dados:
@@ -1519,42 +1400,23 @@ with tab_stats:
                 sequencias.append((n, curr_seq))
         
         # Ordenação
-        atrasados.sort(key=lambda x: x[1], reverse=True)
         sequencias.sort(key=lambda x: x[1], reverse=True)
 
         st.subheader("⚠️ Alertas de Padrões")
-        c3, c4 = st.columns(2)
-        with c3:
-            st.markdown("**🐢 Mais Atrasados**")
-            if atrasados:
-                for n, d in atrasados[:5]:
-                    st.markdown(f"""
-                    <div style="background-color: white; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                        <div style="display: flex; align-items: center;">
-                            <span style="font-size: 20px; margin-right: 10px;">⏳</span>
-                            <span style="font-weight: bold; color: #333; font-size: 16px;">Dezena {n:02d}</span>
-                        </div>
-                        <span style="background-color: #ffc107; color: #333; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">{d} jogos</span>
+        st.markdown("**⚡ Em Sequência**")
+        if sequencias:
+            for n, s in sequencias[:5]:
+                st.markdown(f"""
+                <div style="background-color: white; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <div style="display: flex; align-items: center;">
+                        <span style="font-size: 20px; margin-right: 10px;">🔥</span>
+                        <span style="font-weight: bold; color: #333; font-size: 16px;">Dezena {n:02d}</span>
                     </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.info("Sem atrasos significativos.")
-        
-        with c4:
-            st.markdown("**⚡ Em Sequência**")
-            if sequencias:
-                for n, s in sequencias[:5]:
-                    st.markdown(f"""
-                    <div style="background-color: white; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                        <div style="display: flex; align-items: center;">
-                            <span style="font-size: 20px; margin-right: 10px;">🔥</span>
-                            <span style="font-weight: bold; color: #333; font-size: 16px;">Dezena {n:02d}</span>
-                        </div>
-                        <span style="background-color: {VERDE_CLARO}; color: {VERDE_ESCURO}; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">{s} seguidos</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.info("Sem sequências longas.")
+                    <span style="background-color: {VERDE_CLARO}; color: {VERDE_ESCURO}; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">{s} seguidos</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("Sem sequências longas.")
 
         # --- GRÁFICO DE FREQUÊNCIA ---
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1699,7 +1561,7 @@ if tab_static:
         if dados and len(dados) > 1:
             # --- RANKING DE MÉTRICAS ---
             qtd_analise = len(dados) - 1
-            stats = {"Top 10": 0, "Paridade": 0, "Atrasados": 0, "Repetidos": 0, "Bottom 6": 0, "Sequencial": 0, "Rastreador Faltantes": 0, "Atraso Quântico": 0}
+            stats = {"Top 10": 0, "Paridade": 0, "Repetidos": 0, "Bottom 6": 0, "Sequencial": 0, "Rastreador Faltantes": 0}
             
             if qtd_analise > 0:
                 for i in range(qtd_analise):
@@ -1709,16 +1571,14 @@ if tab_static:
                     
                     metricas_result = analisar_metricas_resultado(res, hist)
                     if not metricas_result: continue
-                    ok_rep, ok_par, ok_atr, ok_top, ok_bot, ok_seq, ok_rastreador, ok_quantico = metricas_result
+                    ok_rep, ok_par, ok_top, ok_bot, ok_seq, ok_rastreador = metricas_result
                     
                     if ok_rep: stats["Repetidos"] += 1
                     if ok_par: stats["Paridade"] += 1
-                    if ok_atr: stats["Atrasados"] += 1
                     if ok_top: stats["Top 10"] += 1
                     if ok_bot: stats["Bottom 6"] += 1
                     if ok_seq: stats["Sequencial"] += 1
                     if ok_rastreador: stats["Rastreador Faltantes"] += 1
-                    if ok_quantico: stats["Atraso Quântico"] += 1
                 
                 ranking = sorted(stats.items(), key=lambda x: x[1], reverse=True)
                 
@@ -1739,11 +1599,11 @@ if tab_static:
                 if not hist: continue
                 metricas_result = analisar_metricas_resultado(res, hist)
                 if not metricas_result: continue
-                ok_rep, ok_par, ok_atr, ok_top, ok_bot, ok_seq, ok_rastreador, ok_quantico = metricas_result
+                ok_rep, ok_par, ok_top, ok_bot, ok_seq, ok_rastreador = metricas_result
                 
                 # Calculo %
-                metricas_vals = [ok_rep, ok_par, ok_atr, ok_top, ok_bot, ok_seq, ok_rastreador, ok_quantico]
-                perc = (sum(metricas_vals) / 8) * 100
+                metricas_vals = [ok_rep, ok_par, ok_top, ok_bot, ok_seq, ok_rastreador]
+                perc = (sum(metricas_vals) / 6) * 100
                 
                 cor_perc = VERDE_MEDIO if perc >= 80 else (ROXO_MEDIO if perc >= 60 else "#dc3545")
                 def fmt_bool(b): return "✅ OK" if b else "❌ Não"
@@ -1763,10 +1623,8 @@ if tab_static:
                         <div style="flex: 1; min-width: 120px;"><b>Bottom 6:</b> {fmt_bool(ok_bot)}</div>
                         <div style="flex: 1; min-width: 120px;"><b>Paridade:</b> {fmt_bool(ok_par)}</div>
                         <div style="flex: 1; min-width: 120px;"><b>Repetidos:</b> {fmt_bool(ok_rep)}</div>
-                        <div style="flex: 1; min-width: 120px;"><b>Atrasados:</b> {fmt_bool(ok_atr)}</div>
                         <div style="flex: 1; min-width: 120px;"><b>Sequencial:</b> {fmt_bool(ok_seq)}</div>
                         <div style="flex: 1; min-width: 120px;"><b>Rastreador:</b> {fmt_bool(ok_rastreador)}</div>
-                        <div style="flex: 1; min-width: 120px;"><b>Atraso Quântico:</b> {fmt_bool(ok_quantico)}</div>
                     </div>
                     <div style="margin-top: 15px; font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 10px;">
                         <b>Dezenas:</b> {sorted([int(x) for x in (res.get('dezenas') or res.get('listaDezenas'))])}
