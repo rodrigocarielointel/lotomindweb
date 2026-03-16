@@ -914,6 +914,7 @@ def gerar_palpite_personalizado_dialog():
                 st.session_state.dialog_palpite = jogo
                 st.session_state.dialog_msg = msg
                 st.session_state.dialog_confianca = confianca
+
         else:
             st.session_state.dialog_palpite = None
             st.session_state.dialog_msg = "Erro ao carregar dados para geração."
@@ -963,11 +964,10 @@ def gerar_palpite_personalizado_dialog():
                     "numeros": st.session_state.dialog_palpite, 
                     "confianca": st.session_state.dialog_confianca 
                 }
-                st.session_state['palpite_id_atual'] = salvar_novo_palpite(novo_auto, user_email)
+                st.session_state['palpite_id_atual'] = salvar_novo_palpite(novo_auto, user_email, tipo="personalizado")
 
             # Fecha o dialog e atualiza a página principal
             st.rerun()
-
     elif st.session_state.get('dialog_msg'):
         st.error(st.session_state.dialog_msg)
 
@@ -1836,6 +1836,7 @@ if is_admin and tab_estudo:
                 combinacoes = list(combinations(METRICAS_TOTAIS, 3))
                 
                 st.session_state.study_blocks = [] # Reseta os blocos anteriores
+                palpites_para_salvar_db = []
                 
                 progress_bar = st.progress(0, text="Iniciando geração...")
                 
@@ -1846,7 +1847,7 @@ if is_admin and tab_estudo:
                     
                     palpites_gerados = []
                     for _ in range(100):
-                        jogo, _, _ = gerar_palpite_logica(
+                        jogo, confianca, _ = gerar_palpite_logica(
                             dados,
                             ultimo_resultado,
                             palpites_existentes=palpites_gerados,
@@ -1854,10 +1855,18 @@ if is_admin and tab_estudo:
                         )
                         if jogo:
                             palpites_gerados.append(jogo)
+                            # Adiciona o palpite à lista para salvar no banco de dados
+                            # Nota: A tabela 'palpites_estudo' precisa ter uma coluna 'metricas_usadas' (tipo texto ou json)
+                            palpites_para_salvar_db.append({
+                                "concurso": proximo_concurso_estudo,
+                                "numeros": jogo,
+                                "confianca": confianca,
+                                "metricas_usadas": combo_list
+                            })
                         else:
                             # Se não conseguir gerar um jogo, para de tentar para este combo
                             break 
-                    
+
                     if palpites_gerados:
                         st.session_state.study_blocks.append({
                             "concurso": proximo_concurso_estudo,
@@ -1865,6 +1874,14 @@ if is_admin and tab_estudo:
                             "palpites": palpites_gerados,
                             "timestamp": datetime.datetime.now()
                         })
+
+                # Salva todos os palpites gerados no banco de uma vez
+                if palpites_para_salvar_db:
+                    ok, msg = salvar_palpites_estudo_db(palpites_para_salvar_db)
+                    if ok:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
 
                 progress_bar.empty()
                 st.success(f"{len(st.session_state.study_blocks)} caixas de estudo geradas com sucesso!")
