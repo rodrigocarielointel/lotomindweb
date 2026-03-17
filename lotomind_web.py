@@ -5,7 +5,7 @@ import requests
 import json
 import os
 import urllib.parse
-from collections import Counter
+from collections import Counter, defaultdict
 import datetime
 import time
 from supabase import create_client, Client
@@ -533,7 +533,7 @@ def carregar_palpites_estudo(concurso_num=None):
     """Carrega palpites de estudo. Se concurso_num for fornecido, filtra por ele."""
     if not supabase_client: return []
     try:
-        query = supabase_client.table("palpites_estudo").select("concurso, numeros, confianca")
+        query = supabase_client.table("palpites_estudo").select("concurso, numeros, confianca, metricas_usadas")
         if concurso_num:
             query = query.eq("concurso", concurso_num)
         
@@ -1962,6 +1962,70 @@ if is_admin and tab_estudo:
                                 html_list_estudo += f'<div style="{style_row}"><span>{n_acertos} Acertos</span><span>{qtd} jogos</span></div>'
                             
                             st.markdown(f"<div style='border: 1px solid #ddd; border-radius: 10px; padding: 10px;'>{html_list_estudo}</div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.subheader("📚 Recuperar e Analisar Estudos Salvos")
+        st.caption("Recupere estudos gerados anteriormente para conferência após o sorteio.")
+
+        concurso_analise_input = st.number_input("Número do Concurso para Análise", value=int(ultimo_resultado['concurso']) if ultimo_resultado else 0, step=1)
+        
+        if st.button("🔎 Buscar no Banco de Dados"):
+            with st.spinner("Buscando estudos..."):
+                estudos_db = carregar_palpites_estudo(concurso_analise_input)
+                
+            if not estudos_db:
+                st.warning(f"Nenhum estudo encontrado no banco de dados para o concurso {concurso_analise_input}.")
+            else:
+                # Agrupa os estudos por métricas usadas
+                boxes_recuperados = defaultdict(list)
+                for item in estudos_db:
+                    m = item.get('metricas_usadas')
+                    # Normaliza a chave para agrupar corretamente
+                    if isinstance(m, list):
+                        key = tuple(sorted(m))
+                    elif isinstance(m, str):
+                        try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
+                        except: key = (str(m),)
+                    else:
+                        key = ("Métricas não identificadas",)
+                    
+                    boxes_recuperados[key].append(item['numeros'])
+
+                # Busca resultado para conferência
+                resultado_conf = next((s for s in dados if str(s['concurso']) == str(concurso_analise_input)), None)
+                
+                if resultado_conf:
+                    dezenas_sorteadas = [int(x) for x in (resultado_conf.get('dezenas') or resultado_conf.get('listaDezenas'))]
+                    st.success(f"Resultado Oficial do Concurso {concurso_analise_input} carregado!")
+                    st.code(str(sorted(dezenas_sorteadas)), language=None)
+                else:
+                    st.info(f"Resultado do concurso {concurso_analise_input} ainda não disponível na base local. Mostrando apenas estatísticas de volume.")
+
+                # Exibe cada Box recuperado
+                for metrics_tuple, jogos in boxes_recuperados.items():
+                    metrics_str = " + ".join(metrics_tuple)
+                    with st.expander(f"📦 Box: {metrics_str} ({len(jogos)} jogos)"):
+                        if resultado_conf:
+                            hits_counter = Counter()
+                            for jogo in jogos:
+                                acertos = len(set(jogo) & set(dezenas_sorteadas))
+                                hits_counter[acertos] += 1
+                            
+                            # Estatísticas textuais solicitadas
+                            msg_stats = []
+                            for k in [15, 14, 13, 12, 11]:
+                                count = hits_counter.get(k, 0)
+                                if count > 0: msg_stats.append(f"**{count}** jogos com **{k}** acertos")
+                            
+                            count_low = sum(hits_counter.get(i, 0) for i in range(11))
+                            if count_low > 0: msg_stats.append(f"**{count_low}** jogos com **10 ou menos** acertos")
+                            
+                            st.markdown(" • ".join(msg_stats))
+                            
+                            # Gráfico simples de distribuição
+                            st.bar_chart(hits_counter)
+                        else:
+                            st.write(f"Contém {len(jogos)} jogos gerados. Aguardando sorteio para conferência de acertos.")
 
 # --- TELA: ADMIN (VISÍVEL APENAS PARA ADMINS) ---
 if is_admin and tab_admin:
