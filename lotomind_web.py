@@ -875,7 +875,7 @@ def gerar_palpite_personalizado_dialog():
     metricas_selecionadas = st.multiselect(
         "Selecione as métricas para o seu palpite:",
         options=list(METRICAS_DISPONIVEIS.keys()),
-        default=list(METRICAS_DISPONIVEIS.keys()),
+        default=[],
         key="metricas_palpite_dialog"
     )
 
@@ -947,27 +947,34 @@ def gerar_palpite_personalizado_dialog():
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        if st.button("✅ Usar este Palpite", use_container_width=True):
-            # Define o estado da página principal com os dados do dialog
-            st.session_state.palpite_atual = st.session_state.dialog_palpite
-            st.session_state.msg_palpite = st.session_state.dialog_msg
-            st.session_state.confianca_atual = st.session_state.dialog_confianca
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅ Usar este Palpite", use_container_width=True, type="primary"):
+                # Define o estado da página principal com os dados do dialog
+                st.session_state.palpite_atual = st.session_state.dialog_palpite
+                st.session_state.msg_palpite = st.session_state.dialog_msg
+                st.session_state.confianca_atual = st.session_state.dialog_confianca
 
-            # Salva o palpite no banco de dados
-            user_email = st.session_state.get('logged_user', {}).get('email')
-            if user_email:
-                ultimo_resultado = st.session_state['dados'][0]
-                proximo_concurso = ultimo_resultado.get('proximoConcurso')
-                novo_auto = { 
-                    "concurso": proximo_concurso, 
-                    "data": ultimo_resultado.get('dataProximoConcurso'), 
-                    "numeros": st.session_state.dialog_palpite, 
-                    "confianca": st.session_state.dialog_confianca 
-                }
-                st.session_state['palpite_id_atual'] = salvar_novo_palpite(novo_auto, user_email, tipo="personalizado")
+                # Salva o palpite no banco de dados
+                user_email = st.session_state.get('logged_user', {}).get('email')
+                if user_email:
+                    ultimo_resultado = st.session_state['dados'][0]
+                    proximo_concurso = ultimo_resultado.get('proximoConcurso')
+                    novo_auto = { 
+                        "concurso": proximo_concurso, 
+                        "data": ultimo_resultado.get('dataProximoConcurso'), 
+                        "numeros": st.session_state.dialog_palpite, 
+                        "confianca": st.session_state.dialog_confianca 
+                    }
+                    st.session_state['palpite_id_atual'] = salvar_novo_palpite(novo_auto, user_email, tipo="personalizado")
 
-            # Fecha o dialog e atualiza a página principal
-            st.rerun()
+                # Fecha o dialog e atualiza a página principal
+                st.session_state.show_custom_dialog = False
+                st.rerun()
+        with c2:
+            if st.button("❌ Fechar", use_container_width=True):
+                st.session_state.show_custom_dialog = False
+                st.rerun()
     elif st.session_state.get('dialog_msg'):
         st.error(st.session_state.dialog_msg)
 
@@ -1174,11 +1181,11 @@ with tab_inicio:
         with c_pers:
             st.markdown('<div class="btn-verde-escuro">', unsafe_allow_html=True)
             if st.button("✨ Gerar Personalizado", use_container_width=True):
-                # Limpa o estado do diálogo anterior antes de abrir um novo
+                # Limpa o estado do diálogo anterior e define flag para mostrá-lo
                 st.session_state.dialog_palpite = None
                 st.session_state.dialog_msg = None
                 st.session_state.dialog_confianca = 0
-                gerar_palpite_personalizado_dialog()
+                st.session_state.show_custom_dialog = True
             st.markdown('</div>', unsafe_allow_html=True)
         
         with c_update:
@@ -1192,6 +1199,10 @@ with tab_inicio:
                         st.rerun()
                     else:
                         st.error("Erro.")
+        
+        # Este bloco agora controla a visibilidade do diálogo
+        if st.session_state.get("show_custom_dialog", False):
+            gerar_palpite_personalizado_dialog()
         
         if btn_rapido:
             if dados and ultimo_resultado:
