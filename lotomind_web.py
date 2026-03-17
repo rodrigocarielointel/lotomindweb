@@ -1842,6 +1842,30 @@ if is_admin and tab_estudo:
             proximo_concurso_estudo = ultimo_resultado.get('proximoConcurso')
             st.subheader(f"Geração de Caixas de Estudo para o Concurso: {proximo_concurso_estudo}")
 
+            # --- AUTO-LOAD: Carrega estudos já salvos para este concurso ---
+            if not st.session_state.study_blocks:
+                estudos_salvos = carregar_palpites_estudo(proximo_concurso_estudo)
+                if estudos_salvos:
+                    grouped_saved = defaultdict(list)
+                    for item in estudos_salvos:
+                        m = item.get('metricas_usadas')
+                        if isinstance(m, list): key = tuple(sorted(m))
+                        elif isinstance(m, str):
+                            try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
+                            except: key = (str(m),)
+                        else: key = ("Métricas não identificadas",)
+                        grouped_saved[key].append(item['numeros'])
+                    
+                    for metrics_tuple, jogos_lista in grouped_saved.items():
+                        st.session_state.study_blocks.append({
+                            "concurso": proximo_concurso_estudo,
+                            "metricas": list(metrics_tuple),
+                            "palpites": jogos_lista,
+                            "timestamp": datetime.datetime.now()
+                        })
+                    if st.session_state.study_blocks:
+                        st.success(f"📂 {len(st.session_state.study_blocks)} caixas de estudo recuperadas do banco para este concurso.")
+
             if st.button("🤖 Gerar Box de Estudos (Cruzamento de 3 Métricas)", type="primary", use_container_width=True):
                 METRICAS_TOTAIS = ["Repetidos", "Paridade", "Top 10", "Bottom 6", "Sequencial", "Rastreador de Faltantes"]
                 combinacoes = list(combinations(METRICAS_TOTAIS, 3))
@@ -1976,113 +2000,200 @@ if is_admin and tab_estudo:
 
         st.markdown("---")
         st.subheader("📚 Recuperar e Analisar Estudos Salvos")
-        st.caption("Recupere estudos gerados anteriormente para conferência após o sorteio.")
-
-        concurso_analise_input = st.number_input("Número do Concurso para Análise", value=int(ultimo_resultado['concurso']) if ultimo_resultado else 0, step=1)
         
-        if st.button("🔎 Buscar no Banco de Dados"):
-            with st.spinner("Buscando estudos..."):
-                estudos_db = carregar_palpites_estudo(concurso_analise_input)
-                
-            if not estudos_db:
-                st.warning(f"Nenhum estudo encontrado no banco de dados para o concurso {concurso_analise_input}.")
-            else:
-                # Agrupa os estudos por métricas usadas
-                boxes_recuperados = defaultdict(list)
-                for item in estudos_db:
-                    m = item.get('metricas_usadas')
-                    # Normaliza a chave para agrupar corretamente
-                    if isinstance(m, list):
-                        key = tuple(sorted(m))
-                    elif isinstance(m, str):
-                        try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
-                        except: key = (str(m),)
-                    else:
-                        key = ("Métricas não identificadas",)
-                    
-                    boxes_recuperados[key].append(item['numeros'])
+        tipo_visualizacao = st.radio("Modo de Visualização", ["Individual (Por Concurso)", "Geral (Ranking Consolidado)"], horizontal=True)
 
-                # Busca resultado para conferência
-                resultado_conf = next((s for s in dados if str(s['concurso']) == str(concurso_analise_input)), None)
-                
-                if resultado_conf:
-                    dezenas_sorteadas = [int(x) for x in (resultado_conf.get('dezenas') or resultado_conf.get('listaDezenas'))]
-                    st.success(f"Resultado Oficial do Concurso {concurso_analise_input} carregado!")
-                    st.code(str(sorted(dezenas_sorteadas)), language=None)
-
-                    # --- RANKING DE CAIXAS ---
-                    st.markdown("### 🏆 Ranking de Desempenho das Caixas")
-                    ranking_data = []
+        if tipo_visualizacao == "Individual (Por Concurso)":
+            concurso_analise_input = st.number_input("Número do Concurso para Análise", value=int(ultimo_resultado['concurso']) if ultimo_resultado else 0, step=1)
+            
+            if st.button("🔎 Buscar no Banco de Dados"):
+                with st.spinner("Buscando estudos..."):
+                    estudos_db = carregar_palpites_estudo(concurso_analise_input)
                     
-                    for metrics_tuple, jogos in boxes_recuperados.items():
-                        metrics_str = " + ".join(metrics_tuple)
-                        hits_counter = Counter()
-                        ganho_box = 0.0
-                        
-                        for jogo in jogos:
-                            acertos = len(set(jogo) & set(dezenas_sorteadas))
-                            hits_counter[acertos] += 1
-                            
-                            # Calculo financeiro estimado para o ranking
-                            if acertos >= 11:
-                                v_premio = 0
-                                for f in resultado_conf.get('premiacoes', []):
-                                    if str(acertos) in f.get('descricao', ''):
-                                        v_premio = f.get('valorPremio', 0)
-                                        break
-                                if v_premio == 0: # Fallback
-                                    if acertos == 11: v_premio = 6.0
-                                    elif acertos == 12: v_premio = 12.0
-                                    elif acertos == 13: v_premio = 30.0
-                                ganho_box += v_premio
-                        
-                        investimento_box = len(jogos) * 3.00
-                        saldo_box = ganho_box - investimento_box
-                        
-                        ranking_data.append({
-                            "Caixa (Métricas)": metrics_str,
-                            "15 Pts": hits_counter[15],
-                            "14 Pts": hits_counter[14],
-                            "13 Pts": hits_counter[13],
-                            "12 Pts": hits_counter[12],
-                            "11 Pts": hits_counter[11],
-                            "Saldo (R$)": saldo_box
-                        })
-                    
-                    if ranking_data:
-                        df_rank = pd.DataFrame(ranking_data)
-                        # Ordena: Mais 15, depois mais 14, ..., por fim maior Saldo
-                        df_rank = df_rank.sort_values(by=["15 Pts", "14 Pts", "13 Pts", "Saldo (R$)"], ascending=False)
-                        st.dataframe(df_rank, hide_index=True, use_container_width=True, 
-                                     column_config={"Saldo (R$)": st.column_config.NumberColumn(format="R$ %.2f")})
+                if not estudos_db:
+                    st.warning(f"Nenhum estudo encontrado no banco de dados para o concurso {concurso_analise_input}.")
                 else:
-                    st.info(f"Resultado do concurso {concurso_analise_input} ainda não disponível na base local. Mostrando apenas estatísticas de volume.")
+                    # Agrupa os estudos por métricas usadas
+                    boxes_recuperados = defaultdict(list)
+                    for item in estudos_db:
+                        m = item.get('metricas_usadas')
+                        # Normaliza a chave para agrupar corretamente
+                        if isinstance(m, list):
+                            key = tuple(sorted(m))
+                        elif isinstance(m, str):
+                            try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
+                            except: key = (str(m),)
+                        else:
+                            key = ("Métricas não identificadas",)
+                        
+                        boxes_recuperados[key].append(item['numeros'])
 
-                # Exibe cada Box recuperado
-                for metrics_tuple, jogos in boxes_recuperados.items():
-                    metrics_str = " + ".join(metrics_tuple)
-                    with st.expander(f"📦 Box: {metrics_str} ({len(jogos)} jogos)"):
-                        if resultado_conf:
+                    # Busca resultado para conferência
+                    resultado_conf = next((s for s in dados if str(s['concurso']) == str(concurso_analise_input)), None)
+                    
+                    if resultado_conf:
+                        dezenas_sorteadas = [int(x) for x in (resultado_conf.get('dezenas') or resultado_conf.get('listaDezenas'))]
+                        st.success(f"Resultado Oficial do Concurso {concurso_analise_input} carregado!")
+                        st.code(str(sorted(dezenas_sorteadas)), language=None)
+
+                        # --- RANKING DE CAIXAS ---
+                        st.markdown("### 🏆 Ranking de Desempenho das Caixas")
+                        ranking_data = []
+                        
+                        for metrics_tuple, jogos in boxes_recuperados.items():
+                            metrics_str = " + ".join(metrics_tuple)
                             hits_counter = Counter()
+                            ganho_box = 0.0
+                            
                             for jogo in jogos:
                                 acertos = len(set(jogo) & set(dezenas_sorteadas))
                                 hits_counter[acertos] += 1
+                                
+                                # Calculo financeiro estimado para o ranking
+                                if acertos >= 11:
+                                    v_premio = 0
+                                    for f in resultado_conf.get('premiacoes', []):
+                                        if str(acertos) in f.get('descricao', ''):
+                                            v_premio = f.get('valorPremio', 0)
+                                            break
+                                    if v_premio == 0: # Fallback
+                                        if acertos == 11: v_premio = 6.0
+                                        elif acertos == 12: v_premio = 12.0
+                                        elif acertos == 13: v_premio = 30.0
+                                    ganho_box += v_premio
                             
-                            # Estatísticas textuais solicitadas
-                            msg_stats = []
-                            for k in [15, 14, 13, 12, 11]:
-                                count = hits_counter.get(k, 0)
-                                if count > 0: msg_stats.append(f"**{count}** jogos com **{k}** acertos")
+                            investimento_box = len(jogos) * 3.00
+                            saldo_box = ganho_box - investimento_box
                             
-                            count_low = sum(hits_counter.get(i, 0) for i in range(11))
-                            if count_low > 0: msg_stats.append(f"**{count_low}** jogos com **10 ou menos** acertos")
+                            ranking_data.append({
+                                "Caixa (Métricas)": metrics_str,
+                                "15 Pts": hits_counter[15],
+                                "14 Pts": hits_counter[14],
+                                "13 Pts": hits_counter[13],
+                                "12 Pts": hits_counter[12],
+                                "11 Pts": hits_counter[11],
+                                "Saldo (R$)": saldo_box
+                            })
+                        
+                        if ranking_data:
+                            df_rank = pd.DataFrame(ranking_data)
+                            # Ordena: Mais 15, depois mais 14, ..., por fim maior Saldo
+                            df_rank = df_rank.sort_values(by=["15 Pts", "14 Pts", "13 Pts", "Saldo (R$)"], ascending=False)
+                            st.dataframe(df_rank, hide_index=True, use_container_width=True, 
+                                        column_config={"Saldo (R$)": st.column_config.NumberColumn(format="R$ %.2f")})
+                    else:
+                        st.info(f"Resultado do concurso {concurso_analise_input} ainda não disponível na base local. Mostrando apenas estatísticas de volume.")
+
+                    # Exibe cada Box recuperado
+                    for metrics_tuple, jogos in boxes_recuperados.items():
+                        metrics_str = " + ".join(metrics_tuple)
+                        with st.expander(f"📦 Box: {metrics_str} ({len(jogos)} jogos)"):
+                            if resultado_conf:
+                                hits_counter = Counter()
+                                for jogo in jogos:
+                                    acertos = len(set(jogo) & set(dezenas_sorteadas))
+                                    hits_counter[acertos] += 1
+                                
+                                # Estatísticas textuais solicitadas
+                                msg_stats = []
+                                for k in [15, 14, 13, 12, 11]:
+                                    count = hits_counter.get(k, 0)
+                                    if count > 0: msg_stats.append(f"**{count}** jogos com **{k}** acertos")
+                                
+                                count_low = sum(hits_counter.get(i, 0) for i in range(11))
+                                if count_low > 0: msg_stats.append(f"**{count_low}** jogos com **10 ou menos** acertos")
+                                
+                                st.markdown(" • ".join(msg_stats))
+                                
+                                # Gráfico simples de distribuição
+                                st.bar_chart(hits_counter)
+                            else:
+                                st.write(f"Contém {len(jogos)} jogos gerados. Aguardando sorteio para conferência de acertos.")
+        
+        elif tipo_visualizacao == "Geral (Ranking Consolidado)":
+            st.info("Esta análise percorre todo o histórico de estudos e consolida o desempenho das caixas.")
+            if st.button("📊 Gerar Ranking Consolidado"):
+                with st.spinner("Processando histórico completo (isso pode levar alguns segundos)..."):
+                    # Busca TODOS os estudos (sem filtro de concurso)
+                    todos_estudos = carregar_palpites_estudo(None)
+                    
+                    if not todos_estudos:
+                        st.warning("Nenhum histórico de estudos encontrado.")
+                    else:
+                        # Dicionário para agregar: Chave=Metricas -> Valor={stats}
+                        agregado = {}
+                        
+                        # Cache de resultados para evitar lookup repetido
+                        mapa_resultados = {str(d['concurso']): d for d in dados}
+                        
+                        for item in todos_estudos:
+                            conc = str(item['concurso'])
+                            if conc not in mapa_resultados:
+                                continue # Pula se não tiver resultado (ainda não sorteado)
                             
-                            st.markdown(" • ".join(msg_stats))
+                            # Identifica métricas (Chave)
+                            m = item.get('metricas_usadas')
+                            if isinstance(m, list): key = tuple(sorted(m))
+                            elif isinstance(m, str):
+                                try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
+                                except: key = (str(m),)
+                            else: key = ("Indefinido",)
                             
-                            # Gráfico simples de distribuição
-                            st.bar_chart(hits_counter)
+                            if key not in agregado:
+                                agregado[key] = {"15":0, "14":0, "13":0, "12":0, "11":0, "ganho":0.0, "custo":0.0, "jogos":0}
+                            
+                            # Processa acertos
+                            res = mapa_resultados[conc]
+                            sorteados = set([int(x) for x in (res.get('dezenas') or res.get('listaDezenas'))])
+                            jogo_nums = set(item['numeros'])
+                            acertos = len(jogo_nums & sorteados)
+                            
+                            agregado[key]["jogos"] += 1
+                            agregado[key]["custo"] += 3.00
+                            
+                            if acertos >= 11:
+                                if acertos == 15: agregado[key]["15"] += 1
+                                elif acertos == 14: agregado[key]["14"] += 1
+                                elif acertos == 13: agregado[key]["13"] += 1
+                                elif acertos == 12: agregado[key]["12"] += 1
+                                elif acertos == 11: agregado[key]["11"] += 1
+                                
+                                # Valor
+                                v = 0
+                                for f in res.get('premiacoes', []):
+                                    if str(acertos) in f.get('descricao', ''):
+                                        v = f.get('valorPremio', 0)
+                                        break
+                                if v == 0:
+                                    if acertos == 11: v = 6.0
+                                    elif acertos == 12: v = 12.0
+                                    elif acertos == 13: v = 30.0
+                                agregado[key]["ganho"] += v
+                        
+                        # Monta tabela final
+                        rank_final = []
+                        for key, stats in agregado.items():
+                            metrics_str = " + ".join(key)
+                            saldo = stats["ganho"] - stats["custo"]
+                            rank_final.append({
+                                "Caixa (Métricas)": metrics_str,
+                                "Jogos Totais": stats["jogos"],
+                                "15 Pts": stats["15"],
+                                "14 Pts": stats["14"],
+                                "13 Pts": stats["13"],
+                                "12 Pts": stats["12"],
+                                "11 Pts": stats["11"],
+                                "Saldo Total (R$)": saldo
+                            })
+                        
+                        if rank_final:
+                            df_consol = pd.DataFrame(rank_final)
+                            # Ordena por Saldo
+                            df_consol = df_consol.sort_values(by="Saldo Total (R$)", ascending=False)
+                            st.dataframe(df_consol, hide_index=True, use_container_width=True,
+                                         column_config={"Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")})
                         else:
-                            st.write(f"Contém {len(jogos)} jogos gerados. Aguardando sorteio para conferência de acertos.")
+                            st.info("Nenhum estudo com resultado apurado encontrado.")
 
 # --- TELA: ADMIN (VISÍVEL APENAS PARA ADMINS) ---
 if is_admin and tab_admin:
