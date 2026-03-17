@@ -2009,6 +2009,52 @@ if is_admin and tab_estudo:
                     dezenas_sorteadas = [int(x) for x in (resultado_conf.get('dezenas') or resultado_conf.get('listaDezenas'))]
                     st.success(f"Resultado Oficial do Concurso {concurso_analise_input} carregado!")
                     st.code(str(sorted(dezenas_sorteadas)), language=None)
+
+                    # --- RANKING DE CAIXAS ---
+                    st.markdown("### 🏆 Ranking de Desempenho das Caixas")
+                    ranking_data = []
+                    
+                    for metrics_tuple, jogos in boxes_recuperados.items():
+                        metrics_str = " + ".join(metrics_tuple)
+                        hits_counter = Counter()
+                        ganho_box = 0.0
+                        
+                        for jogo in jogos:
+                            acertos = len(set(jogo) & set(dezenas_sorteadas))
+                            hits_counter[acertos] += 1
+                            
+                            # Calculo financeiro estimado para o ranking
+                            if acertos >= 11:
+                                v_premio = 0
+                                for f in resultado_conf.get('premiacoes', []):
+                                    if str(acertos) in f.get('descricao', ''):
+                                        v_premio = f.get('valorPremio', 0)
+                                        break
+                                if v_premio == 0: # Fallback
+                                    if acertos == 11: v_premio = 6.0
+                                    elif acertos == 12: v_premio = 12.0
+                                    elif acertos == 13: v_premio = 30.0
+                                ganho_box += v_premio
+                        
+                        investimento_box = len(jogos) * 3.00
+                        saldo_box = ganho_box - investimento_box
+                        
+                        ranking_data.append({
+                            "Caixa (Métricas)": metrics_str,
+                            "15 Pts": hits_counter[15],
+                            "14 Pts": hits_counter[14],
+                            "13 Pts": hits_counter[13],
+                            "12 Pts": hits_counter[12],
+                            "11 Pts": hits_counter[11],
+                            "Saldo (R$)": saldo_box
+                        })
+                    
+                    if ranking_data:
+                        df_rank = pd.DataFrame(ranking_data)
+                        # Ordena: Mais 15, depois mais 14, ..., por fim maior Saldo
+                        df_rank = df_rank.sort_values(by=["15 Pts", "14 Pts", "13 Pts", "Saldo (R$)"], ascending=False)
+                        st.dataframe(df_rank, hide_index=True, use_container_width=True, 
+                                     column_config={"Saldo (R$)": st.column_config.NumberColumn(format="R$ %.2f")})
                 else:
                     st.info(f"Resultado do concurso {concurso_analise_input} ainda não disponível na base local. Mostrando apenas estatísticas de volume.")
 
