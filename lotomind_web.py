@@ -537,7 +537,7 @@ def carregar_palpites_estudo(concurso_num=None):
         if concurso_num:
             query = query.eq("concurso", concurso_num)
         
-        response = query.order("concurso", desc=True).execute()
+        response = query.order("concurso", desc=True).range(0, 9999).execute()
         return response.data
     except Exception as e:
         print(f"Erro ao carregar palpites de estudo: {e}")
@@ -547,7 +547,7 @@ def buscar_dados_api():
     try:
         r = requests.get("https://loteriascaixa-api.herokuapp.com/api/lotofacil/", timeout=7)
         if r.status_code == 200:
-            dados = r.json()[:63] # Pega os últimos 63 (Ajustado para Atraso Quântico)
+            dados = r.json() # Removido limite para pegar histórico completo
             with open(ARQUIVO_CACHE, "w") as f:
                 json.dump(dados, f)
             return dados
@@ -872,10 +872,15 @@ def gerar_palpite_personalizado_dialog():
         "Rastreador de Faltantes": "Incluir dezenas que faltam para fechar o ciclo de 4 sorteios."
     }
 
+    # Recupera configurações salvas ou usa padrão vazio
+    default_metrics = st.session_state.get('last_metrics_cfg', [])
+    default_inc = st.session_state.get('last_inc_cfg', [])
+    default_exc = st.session_state.get('last_exc_cfg', [])
+
     metricas_selecionadas = st.multiselect(
         "Selecione as métricas para o seu palpite:",
         options=list(METRICAS_DISPONIVEIS.keys()),
-        default=[],
+        default=default_metrics,
         key="metricas_palpite_dialog"
     )
 
@@ -883,17 +888,28 @@ def gerar_palpite_personalizado_dialog():
     with c_incluir:
         numeros_incluir = st.multiselect(
             "➕ Incluir Números (até 3)",
-            options=list(range(1, 26)), max_selections=3, key="incluir_numeros_dialog"
+            options=list(range(1, 26)), 
+            default=default_inc,
+            max_selections=3, 
+            key="incluir_numeros_dialog"
         )
     with c_excluir:
         numeros_excluir = st.multiselect(
             "➖ Excluir Números (até 3)",
-            options=list(range(1, 26)), max_selections=3, key="excluir_numeros_dialog"
+            options=list(range(1, 26)), 
+            default=default_exc,
+            max_selections=3, 
+            key="excluir_numeros_dialog"
         )
 
     st.markdown("---")
     
     if st.button("✨ Gerar Palpite Agora", type="primary", use_container_width=True):
+        # Salva as configurações atuais para persistência
+        st.session_state['last_metrics_cfg'] = st.session_state.get('metricas_palpite_dialog', [])
+        st.session_state['last_inc_cfg'] = st.session_state.get('incluir_numeros_dialog', [])
+        st.session_state['last_exc_cfg'] = st.session_state.get('excluir_numeros_dialog', [])
+
         dados = st.session_state['dados']
         ultimo_resultado = dados[0] if dados else None
 
@@ -1642,10 +1658,13 @@ with tab_premios:
         vencedores = []
         
         if dados: # dados = st.session_state['dados']
+            # Otimização: Mapa de resultados para busca rápida O(1)
+            mapa_resultados_premios = {str(s['concurso']): s for s in dados}
+            
             for p in all_palpites:
                 p_concurso = str(p.get('concurso'))
                 # Encontrar resultado correspondente
-                sorteio_match = next((s for s in dados if str(s['concurso']) == p_concurso), None)
+                sorteio_match = mapa_resultados_premios.get(p_concurso)
                 
                 if sorteio_match:
                     sorteados = [int(x) for x in (sorteio_match.get('dezenas') or sorteio_match.get('listaDezenas'))]
@@ -1718,15 +1737,18 @@ if tab_static:
         if not all_palpites_static:
             st.info("Nenhum jogo encontrado.")
         else:
+            # Otimização para Static
+            mapa_resultados_static = {str(s['concurso']): s for s in dados} if dados else {}
+            
             lista_static = []
             for p in all_palpites_static:
                 # Identificar acertos se houver resultado
                 acertos_static = "-"
-                if dados:
-                    sorteio_match = next((s for s in dados if str(s['concurso']) == str(p.get('concurso'))), None)
-                    if sorteio_match:
-                        sorteados = [int(x) for x in (sorteio_match.get('dezenas') or sorteio_match.get('listaDezenas'))]
-                        acertos_static = len(set(p.get('numeros', [])) & set(sorteados))
+                
+                sorteio_match = mapa_resultados_static.get(str(p.get('concurso')))
+                if sorteio_match:
+                    sorteados = [int(x) for x in (sorteio_match.get('dezenas') or sorteio_match.get('listaDezenas'))]
+                    acertos_static = len(set(p.get('numeros', [])) & set(sorteados))
                 
                 # Nome real do usuário
                 u_email = p.get('user_email')
@@ -2111,57 +2133,64 @@ if is_admin and tab_estudo:
                                 st.write(f"Contém {len(jogos)} jogos gerados. Aguardando sorteio para conferência de acertos.")
         
         elif tipo_visualizacao == "Geral (Ranking Consolidado)":
-            st.info("Esta análise percorre todo o histórico de estudos e consolida o desempenho das caixas.")
+            st.info("Esta análise consolida o desempenho das caixas nos últimos 40 concursos.")
             if st.button("📊 Gerar Ranking Consolidado"):
-                with st.spinner("Processando histórico completo (isso pode levar alguns segundos)..."):
+                with st.spinner("Processando histórico dos últimos 40 concursos..."):
+                    # Pega os números dos últimos 40 concursos
+                    if len(dados) < 40:
+                        st.warning(f"A base de dados local tem menos de 40 concursos ({len(dados)}). A análise será feita com os dados disponíveis.")
+                    
+                    ultimos_40_concursos_numeros = [str(d['concurso']) for d in dados[:40]]
+
                     # Busca TODOS os estudos (sem filtro de concurso)
                     todos_estudos = carregar_palpites_estudo(None)
                     
-                    if not todos_estudos:
-                        st.warning("Nenhum histórico de estudos encontrado.")
+                    # Filtra apenas os estudos que pertencem aos últimos 40 concursos
+                    estudos_filtrados = [e for e in todos_estudos if str(e.get('concurso')) in ultimos_40_concursos_numeros]
+
+                    if not estudos_filtrados:
+                        st.warning("Nenhum histórico de estudos encontrado para os últimos 40 concursos.")
                     else:
                         # Dicionário para agregar: Chave=Metricas -> Valor={stats}
                         agregado = {}
                         
-                        # Cache de resultados para evitar lookup repetido
-                        mapa_resultados = {str(d['concurso']): d for d in dados}
+                        # Cache de resultados para evitar lookup repetido, já filtrado
+                        mapa_resultados = {str(d['concurso']): d for d in dados if str(d['concurso']) in ultimos_40_concursos_numeros}
                         
-                        for item in todos_estudos:
+                        for item in estudos_filtrados:
                             conc = str(item['concurso'])
                             if conc not in mapa_resultados:
                                 continue # Pula se não tiver resultado (ainda não sorteado)
                             
                             # Identifica métricas (Chave)
                             m = item.get('metricas_usadas')
-                            if isinstance(m, list): key = tuple(sorted(m))
+                            if isinstance(m, list):
+                                key = tuple(sorted(m))
                             elif isinstance(m, str):
                                 try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
                                 except: key = (str(m),)
-                            else: key = ("Indefinido",)
+                            else:
+                                key = ("Métricas não identificadas",)
                             
                             if key not in agregado:
-                                agregado[key] = {"15":0, "14":0, "13":0, "12":0, "11":0, "ganho":0.0, "custo":0.0, "jogos":0}
+                                agregado[key] = {"ganho":0.0, "custo":0.0, "jogos":0}
                             
                             # Processa acertos
                             res = mapa_resultados[conc]
                             sorteados = set([int(x) for x in (res.get('dezenas') or res.get('listaDezenas'))])
-                            jogo_nums = set(item['numeros'])
-                            acertos = len(jogo_nums & sorteados)
+                            acertos = len(set(item['numeros']) & sorteados)
                             
                             agregado[key]["jogos"] += 1
                             agregado[key]["custo"] += 3.00
                             
                             if acertos >= 11:
-                                if acertos == 15: agregado[key]["15"] += 1
-                                elif acertos == 14: agregado[key]["14"] += 1
-                                elif acertos == 13: agregado[key]["13"] += 1
-                                elif acertos == 12: agregado[key]["12"] += 1
-                                elif acertos == 11: agregado[key]["11"] += 1
+                                acertos_str = str(acertos)
+                                agregado[key][acertos_str] = agregado[key].get(acertos_str, 0) + 1
                                 
                                 # Valor
                                 v = 0
                                 for f in res.get('premiacoes', []):
-                                    if str(acertos) in f.get('descricao', ''):
+                                    if acertos_str in f.get('descricao', ''):
                                         v = f.get('valorPremio', 0)
                                         break
                                 if v == 0:
@@ -2173,23 +2202,21 @@ if is_admin and tab_estudo:
                         # Monta tabela final
                         rank_final = []
                         for key, stats in agregado.items():
-                            metrics_str = " + ".join(key)
-                            saldo = stats["ganho"] - stats["custo"]
                             rank_final.append({
-                                "Caixa (Métricas)": metrics_str,
+                                "Caixa (Métricas)": " + ".join(key),
                                 "Jogos Totais": stats["jogos"],
-                                "15 Pts": stats["15"],
-                                "14 Pts": stats["14"],
-                                "13 Pts": stats["13"],
-                                "12 Pts": stats["12"],
-                                "11 Pts": stats["11"],
-                                "Saldo Total (R$)": saldo
+                                "15 Pts": stats.get("15", 0),
+                                "14 Pts": stats.get("14", 0),
+                                "13 Pts": stats.get("13", 0),
+                                "12 Pts": stats.get("12", 0),
+                                "11 Pts": stats.get("11", 0),
+                                "Saldo Total (R$)": stats["ganho"] - stats["custo"]
                             })
                         
                         if rank_final:
                             df_consol = pd.DataFrame(rank_final)
-                            # Ordena por Saldo
-                            df_consol = df_consol.sort_values(by="Saldo Total (R$)", ascending=False)
+                            # Ordena por 15, 14, 13... e depois Saldo
+                            df_consol = df_consol.sort_values(by=["15 Pts", "14 Pts", "13 Pts", "Saldo Total (R$)"], ascending=False)
                             st.dataframe(df_consol, hide_index=True, use_container_width=True,
                                          column_config={"Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")})
                         else:
