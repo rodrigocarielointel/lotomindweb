@@ -523,8 +523,11 @@ def salvar_palpites_estudo_db(palpites_para_salvar):
     if not supabase_client or not palpites_para_salvar:
         return False, "Sem conexão ou sem palpites para salvar."
     try:
-        # O método insert do Supabase aceita uma lista de dicionários
-        supabase_client.table("palpites_estudo").insert(palpites_para_salvar).execute()
+        # Batch insert para evitar limites de payload (salva de 500 em 500)
+        batch_size = 500
+        for i in range(0, len(palpites_para_salvar), batch_size):
+            batch = palpites_para_salvar[i:i + batch_size]
+            supabase_client.table("palpites_estudo").insert(batch).execute()
         return True, f"{len(palpites_para_salvar)} palpites de estudo salvos com sucesso!"
     except Exception as e:
         return False, f"Erro ao salvar palpites de estudo: {e}"
@@ -537,7 +540,7 @@ def carregar_palpites_estudo(concurso_num=None):
         if concurso_num:
             query = query.eq("concurso", concurso_num)
         
-        response = query.order("concurso", desc=True).range(0, 9999).execute()
+        response = query.order("concurso", desc=True).range(0, 149999).execute()
         return response.data
     except Exception as e:
         print(f"Erro ao carregar palpites de estudo: {e}")
