@@ -970,6 +970,9 @@ def gerar_palpite_personalizado_dialog():
             with st.spinner("Analisando estatísticas e padrões..."):
                 proximo_concurso = ultimo_resultado.get('proximoConcurso')
                 palpites_ja_gerados = get_palpites_for_concurso(proximo_concurso) if proximo_concurso else []
+                
+                if st.session_state.dialog_palpite:
+                    palpites_ja_gerados.append(st.session_state.dialog_palpite)
 
                 jogo, confianca, msg = gerar_palpite_logica(
                     dados, ultimo_resultado,
@@ -2180,7 +2183,7 @@ if is_admin and tab_estudo:
         st.markdown("---")
         st.subheader("📚 Analise e Desempenho Estudos Salvos")
         
-        tipo_visualizacao = st.radio("Modo de Visualização", ["Individual (Por Concurso)", "Geral (Ranking Consolidado)"], horizontal=True)
+        tipo_visualizacao = st.radio("Modo de Visualização", ["Individual (Por Concurso)", "Geral (Ranking Consolidado)"], horizontal=True, key="estudos_view_radio")
 
         if tipo_visualizacao == "Individual (Por Concurso)":
             concurso_analise_input = st.number_input("Número do Concurso para Análise", value=int(ultimo_resultado['concurso']) if ultimo_resultado else 0, step=1, format="%d")
@@ -2491,6 +2494,7 @@ if is_admin and tab_estudo:
                         except Exception as e:
                             st.error(f"Erro ao consolidar: {e}")
 
+            if 'estudos_consolidado_result' not in st.session_state: st.session_state['estudos_consolidado_result'] = None
             if st.button("📊 Gerar Ranking Consolidado"):
                 with st.spinner("Processando todo o histórico de estudos salvos..."):
                     # 1. Carregar RESUMOS (Arquivados)
@@ -2628,8 +2632,16 @@ if is_admin and tab_estudo:
                                 "Saldo Total (R$)": stats["ganho"] - stats["custo"]
                             })
                         
-                        if rank_final:
-                            df_consol = pd.DataFrame(rank_final)
+                        if not rank_final:
+                            st.info("Nenhum estudo com resultado apurado encontrado.")
+                            st.warning(f"Diagnóstico: Foram processados {len(todos_estudos_brutos)} palpites brutos e {len(todos_resumos)} resumos, mas nenhum correspondeu a um concurso com resultado já sorteado.")
+                            st.session_state['estudos_consolidado_result'] = None
+                        else:
+                            st.session_state['estudos_consolidado_result'] = rank_final
+
+            if st.session_state['estudos_consolidado_result']:
+                            rank_final_data = st.session_state['estudos_consolidado_result']
+                            df_consol = pd.DataFrame(rank_final_data)
                             # Ordena por 15, 14, 13... e depois Saldo
                             df_consol = df_consol.sort_values(by=["15 Pts", "14 Pts", "13 Pts", "Saldo Total (R$)"], ascending=False)
                             
@@ -2637,7 +2649,7 @@ if is_admin and tab_estudo:
                             st.caption("Classificação baseada na quantidade de acertos de cada nível.")
                             
                             medal_data = []
-                            for row in rank_final:
+                            for row in rank_final_data:
                                 medal_data.append({
                                     "Caixa": row["Caixa (Métricas)"],
                                     "🥇 Ouro (15)": row["15 Pts"],
@@ -2659,7 +2671,7 @@ if is_admin and tab_estudo:
                             st.caption("Ranking pelo total acumulado de medalhas (Ouro, Prata, Bronze, Cristal e Ferro somados).")
                             
                             total_medals_rows = []
-                            for row in rank_final:
+                            for row in rank_final_data:
                                 total_cnt = row["15 Pts"] + row["14 Pts"] + row["13 Pts"] + row["12 Pts"] + row["11 Pts"]
                                 total_medals_rows.append({
                                     "Caixa": row["Caixa (Métricas)"],
@@ -2699,10 +2711,6 @@ if is_admin and tab_estudo:
                                         st.dataframe(df_tier[["Caixa (Métricas)", col]], hide_index=True, use_container_width=True)
                                     else:
                                         st.info(f"Nenhuma caixa pontuou nesta faixa no período analisado.")
-
-                        else:
-                            st.info("Nenhum estudo com resultado apurado encontrado.")
-                            st.warning(f"Diagnóstico: Foram processados {len(todos_estudos_brutos)} palpites brutos e {len(todos_resumos)} resumos, mas nenhum correspondeu a um concurso com resultado já sorteado.")
 
 # --- TELA: ADMIN (VISÍVEL APENAS PARA ADMINS) ---
 if is_admin and tab_admin:
