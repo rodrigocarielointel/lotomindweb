@@ -611,6 +611,14 @@ def buscar_dados_manuais():
                         "valorPremio": float(manual['premio_pago'])
                     }
                 ],
+                # Adiciona suporte para 14 acertos se existir na base manual
+                if manual.get('premio_14') or manual.get('ganhadores_14'):
+                    dados_formatados[-1]["premiacoes"].append({
+                        "descricao": "14 acertos",
+                        "faixa": 2,
+                        "ganhadores": manual.get('ganhadores_14', 0),
+                        "valorPremio": float(manual.get('premio_14', 0.0))
+                    })
                 "proximoConcurso": manual['prox_concurso'],
                 "dataProximoConcurso": manual['prox_data'],
                 "valorEstimadoProximoConcurso": float(manual['prox_premio'])
@@ -1335,6 +1343,12 @@ with tab_inicio:
         
         ganhadores = premiacao_15.get('ganhadores', 0)
         valor_premio = premiacao_15.get('valorPremio', 0)
+        
+        # Busca dados de 14 acertos (variável)
+        premiacao_14 = next((p for p in premiacoes if '14' in p.get('descricao', '')), {})
+        ganhadores_14 = premiacao_14.get('ganhadores', 0)
+        valor_premio_14 = premiacao_14.get('valorPremio', 0)
+
         dezenas = ultimo_resultado.get('dezenas') or ultimo_resultado.get('listaDezenas') or []
         
         html_bolas = ''.join([f'<div style="width: 32px; height: 32px; background-color: #eee; color: #333; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; border: 1px solid #ccc;">{n}</div>' for n in dezenas])
@@ -1351,10 +1365,14 @@ with tab_inicio:
 <span style="font-size: 12px; color: #666; text-transform: uppercase;">Ganhadores (15)</span><br>
 <span style="font-size: 20px; font-weight: bold; color: {ROXO_MEDIO};">{ganhadores}</span>
 </div>
+<div style="text-align: center;">
+<span style="font-size: 12px; color: #666; text-transform: uppercase;">Prêmio (15)</span><br>
+<span style="font-size: 20px; font-weight: bold; color: {VERDE_MEDIO};">R$ {valor_premio:,.2f}</span>
+</div>
 <div style="width: 1px; background-color: #ddd;"></div>
 <div style="text-align: center;">
-<span style="font-size: 12px; color: #666; text-transform: uppercase;">Prêmio Pago</span><br>
-<span style="font-size: 20px; font-weight: bold; color: {VERDE_MEDIO};">R$ {valor_premio:,.2f}</span>
+<span style="font-size: 12px; color: #666; text-transform: uppercase;">Prêmio (14)</span><br>
+<span style="font-size: 18px; font-weight: bold; color: {ROXO_MEDIO};">R$ {valor_premio_14:,.2f}</span>
 </div>
 </div>
 </div>
@@ -2604,12 +2622,26 @@ if is_admin and tab_admin:
                 # Tenta pegar ganhadores e premio do ultimo resultado para preencher
                 last_ganhadores = 0
                 last_premio = 0.0
+                last_ganhadores_14 = 0
+                last_premio_14 = 0.0
+
                 if ultimo_resultado and ultimo_resultado.get('premiacoes'):
-                    last_ganhadores = ultimo_resultado['premiacoes'][0].get('ganhadores', 0)
-                    last_premio = ultimo_resultado['premiacoes'][0].get('valorPremio', 0.0)
+                    # Busca 15 pts
+                    p15 = next((p for p in ultimo_resultado['premiacoes'] if '15' in p.get('descricao', '')), None)
+                    if p15:
+                        last_ganhadores = p15.get('ganhadores', 0)
+                        last_premio = p15.get('valorPremio', 0.0)
+                    # Busca 14 pts
+                    p14 = next((p for p in ultimo_resultado['premiacoes'] if '14' in p.get('descricao', '')), None)
+                    if p14:
+                        last_ganhadores_14 = p14.get('ganhadores', 0)
+                        last_premio_14 = p14.get('valorPremio', 0.0)
                 
-                adm_ganhadores = st.number_input("Ganhadores (15 acertos)", min_value=0, step=1, value=int(last_ganhadores))
-                adm_premio = st.number_input("Prêmio Pago (R$)", min_value=0.0, step=1000.0, format="%.2f", value=float(last_premio))
+                adm_ganhadores = st.number_input("Ganhadores 15 pts", min_value=0, step=1, value=int(last_ganhadores))
+                adm_premio = st.number_input("Prêmio 15 pts (R$)", min_value=0.0, step=1000.0, format="%.2f", value=float(last_premio))
+                
+                adm_ganhadores_14 = st.number_input("Ganhadores 14 pts", min_value=0, step=1, value=int(last_ganhadores_14))
+                adm_premio_14 = st.number_input("Prêmio 14 pts (R$)", min_value=0.0, step=100.0, format="%.2f", value=float(last_premio_14))
             
             st.markdown("**Números Sorteados:**")
             # Multiselect para as dezenas
@@ -2638,6 +2670,8 @@ if is_admin and tab_admin:
                         "dezenas": sorted(adm_dezenas),
                         "ganhadores": adm_ganhadores,
                         "premio_pago": adm_premio,
+                        "ganhadores_14": adm_ganhadores_14,
+                        "premio_14": adm_premio_14,
                         "prox_concurso": adm_prox_concurso,
                         "prox_data": adm_prox_data,
                         "prox_premio": adm_prox_premio
