@@ -1890,118 +1890,177 @@ if tab_static:
 if is_admin and tab_estudo:
     with tab_estudo:
         st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>🔬 Box de Estudos</h2>", unsafe_allow_html=True)
-        st.info("Esta funcionalidade gera automaticamente 100 jogos para **todas as 20 combinações possíveis de 3 métricas**, permitindo uma análise completa de desempenho de cada estratégia.")
-
-        if 'study_blocks' not in st.session_state:
-            st.session_state.study_blocks = []
+        st.info("Gera automaticamente 100 jogos para **todas as 20 combinações possíveis de 3 métricas**, salvando para análise posterior.")
         
         if ultimo_resultado:
             proximo_concurso_estudo = ultimo_resultado.get('proximoConcurso')
-            st.subheader(f"Geração de Caixas de Estudo para o Concurso: {proximo_concurso_estudo}")
 
-            # --- AUTO-LOAD: Carrega estudos já salvos para este concurso ---
-            if not st.session_state.study_blocks:
-                estudos_salvos = carregar_palpites_estudo(proximo_concurso_estudo)
-                if estudos_salvos:
-                    grouped_saved = defaultdict(list)
-                    for item in estudos_salvos:
-                        m = item.get('metricas_usadas')
-                        if isinstance(m, list): key = tuple(sorted(m))
-                        elif isinstance(m, str):
-                            try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
-                            except: key = (str(m),)
-                        else: key = ("Métricas não identificadas",)
-                        grouped_saved[key].append(item['numeros'])
-                    
-                    for metrics_tuple, jogos_lista in grouped_saved.items():
-                        st.session_state.study_blocks.append({
-                            "concurso": proximo_concurso_estudo,
-                            "metricas": list(metrics_tuple),
-                            "palpites": jogos_lista,
-                            "timestamp": datetime.datetime.now()
-                        })
-                    if st.session_state.study_blocks:
-                        st.success(f"📂 {len(st.session_state.study_blocks)} caixas de estudo recuperadas do banco para este concurso.")
+            # --- VERIFICAÇÃO DE ESTUDOS PENDENTES ---
+            # Carrega todos os estudos brutos para identificar pendências
+            all_raw_studies = carregar_palpites_estudo(None)
+            pending_contests = sorted(list(set([int(p['concurso']) for p in all_raw_studies if p.get('concurso')])))
+            
+            older_pending = [c for c in pending_contests if c < proximo_concurso_estudo]
+            current_study_exists = proximo_concurso_estudo in pending_contests
 
-            if st.button("🤖 Gerar Box de Estudos (Cruzamento de 3 Métricas)", type="primary", use_container_width=True):
-                METRICAS_TOTAIS = ["Repetidos", "Paridade", "Top 10", "Bottom 6", "Sequencial", "Rastreador de Faltantes"]
-                combinacoes = list(combinations(METRICAS_TOTAIS, 3))
+            if older_pending:
+                st.warning(f"⚠️ Existem estudos brutos de concursos passados pendentes ({older_pending}). Arquive-os ou exclua-os para liberar a geração de novos estudos.")
                 
-                st.session_state.study_blocks = [] # Reseta os blocos anteriores
-                palpites_para_salvar_db = []
+                for c_pend in older_pending:
+                    with st.expander(f"🔴 Pendência: Concurso {c_pend}", expanded=True):
+                        c_col1, c_col2 = st.columns(2)
+                        
+                        # Busca resultado para saber se pode arquivar
+                        res_conf = next((s for s in dados if str(s['concurso']) == str(c_pend)), None)
+                        
+                        with c_col1:
+                            if res_conf:
+                                if st.button(f"📥 Arquivar/Consolidar {c_pend}", key=f"btn_arq_{c_pend}"):
+                                    # Lógica de Consolidação Inline
+                                    raw_data = [p for p in all_raw_studies if int(p['concurso']) == c_pend]
+                                    dezenas_sorteadas_cons = [int(x) for x in (res_conf.get('dezenas') or res_conf.get('listaDezenas'))]
+                                    
+                                    boxes_save = defaultdict(list)
+                                    for item in raw_data:
+                                        m = item.get('metricas_usadas')
+                                        if isinstance(m, list): key_m = tuple(sorted(m))
+                                        elif isinstance(m, str):
+                                            try: key_m = tuple(sorted(json.loads(m.replace("'", '"'))))
+                                            except: key_m = (str(m),)
+                                        else: key_m = ("Métricas não identificadas",)
+                                        boxes_save[key_m].append(item['numeros'])
+                                    
+                                    lista_resumos = []
+                                    for m_tuple, jogos in boxes_save.items():
+                                        m_str = " + ".join(m_tuple)
+                                        hits = Counter()
+                                        g = 0.0
+                                        for j in jogos:
+                                            ac = len(set(j) & set(dezenas_sorteadas_cons))
+                                            hits[ac] += 1
+                                            if ac >= 11:
+                                                v = 0
+                                                for f in res_conf.get('premiacoes', []):
+                                                    if str(ac) in f.get('descricao', ''):
+                                                        v = f.get('valorPremio', 0); break
+                                                if v==0: v = {11:6,12:12,13:30}.get(ac,0)
+                                                g += v
+                                        custo = len(jogos) * 3.0
+                                        lista_resumos.append({
+                                            "concurso": c_pend, "metricas": m_str, "jogos_total": len(jogos),
+                                            "acertos_15": hits[15], "acertos_14": hits[14], "acertos_13": hits[13],
+                                            "acertos_12": hits[12], "acertos_11": hits[11], "acertos_10_menos": sum(hits[i] for i in range(11)),
+                                            "ganho_total": g, "saldo_total": g - custo
+                                        })
+                                    
+                                    if salvar_resumo_estudo_db(lista_resumos):
+                                        excluir_estudos_por_concurso(c_pend)
+                                        st.success(f"Concurso {c_pend} arquivado!")
+                                        time.sleep(1)
+                                        st.rerun()
+                            else:
+                                st.caption("Aguardando sorteio para arquivar.")
+                        
+                        with c_col2:
+                            if st.button(f"🗑️ Excluir {c_pend}", key=f"btn_del_{c_pend}"):
+                                excluir_estudos_por_concurso(c_pend)
+                                st.success("Excluído.")
+                                time.sleep(1)
+                                st.rerun()
+            
+            # --- FLUXO PRINCIPAL: GERAÇÃO OU VISUALIZAÇÃO DO ATUAL ---
+            elif current_study_exists:
+                st.info(f"✅ Box de Estudos para o concurso **{proximo_concurso_estudo}** já gerado e salvo.")
                 
-                progress_bar = st.progress(0, text="Iniciando geração...")
+                # Carrega o estudo atual para visualização
+                estudos_salvos = [p for p in all_raw_studies if int(p['concurso']) == proximo_concurso_estudo]
                 
-                for i, combo in enumerate(combinacoes):
-                    combo_list = list(combo)
-                    progress_text = f"Gerando box {i+1}/{len(combinacoes)}: {', '.join(combo_list)}"
-                    progress_bar.progress((i + 1) / len(combinacoes), text=progress_text)
-                    
-                    palpites_gerados = []
-                    for _ in range(100):
-                        jogo, confianca, _ = gerar_palpite_logica(
-                            dados,
-                            ultimo_resultado,
-                            palpites_existentes=palpites_gerados,
-                            metricas_selecionadas=combo_list
-                        )
-                        if jogo:
-                            palpites_gerados.append(jogo)
-                            # Adiciona o palpite à lista para salvar no banco de dados
-                            # Nota: A tabela 'palpites_estudo' precisa ter uma coluna 'metricas_usadas' (tipo texto ou json)
-                            palpites_para_salvar_db.append({
-                                "concurso": proximo_concurso_estudo,
-                                "numeros": jogo,
-                                "confianca": confianca,
-                                "metricas_usadas": combo_list
-                            })
-                        else:
-                            # Se não conseguir gerar um jogo, para de tentar para este combo
-                            break 
+                # Botão para excluir e permitir gerar de novo
+                col_del_curr, col_dummy = st.columns([1,3])
+                with col_del_curr:
+                    if st.button(f"🗑️ Excluir Estudo Atual (Liberar Geração)", key="del_curr", type="secondary"):
+                        excluir_estudos_por_concurso(proximo_concurso_estudo)
+                        st.rerun()
+                
+                # Popula session state para visualização abaixo
+                st.session_state.study_blocks = []
+                grouped_saved = defaultdict(list)
+                for item in estudos_salvos:
+                    m = item.get('metricas_usadas')
+                    if isinstance(m, list): key = tuple(sorted(m))
+                    elif isinstance(m, str):
+                        try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
+                        except: key = (str(m),)
+                    else: key = ("Métricas não identificadas",)
+                    grouped_saved[key].append(item['numeros'])
+                
+                for metrics_tuple, jogos_lista in grouped_saved.items():
+                    st.session_state.study_blocks.append({
+                        "concurso": proximo_concurso_estudo, "metricas": list(metrics_tuple),
+                        "palpites": jogos_lista, "timestamp": datetime.datetime.now()
+                    })
 
-                    if palpites_gerados:
-                        st.session_state.study_blocks.append({
-                            "concurso": proximo_concurso_estudo,
-                            "metricas": combo_list,
-                            "palpites": palpites_gerados,
-                            "timestamp": datetime.datetime.now()
-                        })
-
-                # Salva todos os palpites gerados no banco de uma vez
-                if palpites_para_salvar_db:
-                    ok, msg = salvar_palpites_estudo_db(palpites_para_salvar_db)
-                    if ok:
-                        st.success(msg)
-                    else:
-                        st.error(msg)
-
-                progress_bar.empty()
-                st.success(f"{len(st.session_state.study_blocks)} caixas de estudo geradas com sucesso!")
-                time.sleep(1)
-                st.rerun()
-
-            st.markdown("---")
-            st.subheader("🔍 Análise das Caixas de Estudo")
-
-            if not st.session_state.study_blocks:
-                st.write("Nenhuma caixa de estudo foi gerada nesta sessão. Clique no botão acima para gerar.")
             else:
-                resultado_real = next((s for s in dados if str(s['concurso']) == str(proximo_concurso_estudo)), None)
+                # Sem pendências antigas e sem estudo atual -> Libera Geração
+                st.subheader(f"Geração de Caixas de Estudo para o Concurso: {proximo_concurso_estudo}")
+                
+                if st.button("🤖 Gerar Box de Estudos (20 Combinações Salvas)", type="primary", use_container_width=True):
+                    METRICAS_TOTAIS = ["Repetidos", "Paridade", "Top 10", "Bottom 6", "Sequencial", "Rastreador de Faltantes"]
+                    combinacoes = list(combinations(METRICAS_TOTAIS, 3))
+                    palpites_para_salvar_db = []
+                    st.session_state.study_blocks = []
+                    
+                    progress_bar = st.progress(0, text="Iniciando geração...")
+                    for i, combo in enumerate(combinacoes):
+                        combo_list = list(combo)
+                        progress_bar.progress((i + 1) / len(combinacoes), text=f"Gerando box {i+1}/{len(combinacoes)}: {', '.join(combo_list)}")
+                        
+                        palpites_gerados = []
+                        for _ in range(100):
+                            jogo, confianca, _ = gerar_palpite_logica(dados, ultimo_resultado, palpites_existentes=palpites_gerados, metricas_selecionadas=combo_list)
+                            if jogo:
+                                palpites_gerados.append(jogo)
+                                palpites_para_salvar_db.append({
+                                    "concurso": proximo_concurso_estudo, "numeros": jogo,
+                                    "confianca": confianca, "metricas_usadas": combo_list
+                                })
+                            else: break
+                        
+                        if palpites_gerados:
+                            st.session_state.study_blocks.append({
+                                "concurso": proximo_concurso_estudo, "metricas": combo_list,
+                                "palpites": palpites_gerados, "timestamp": datetime.datetime.now()
+                            })
 
+                    if palpites_para_salvar_db:
+                        ok, msg = salvar_palpites_estudo_db(palpites_para_salvar_db)
+                        if ok: st.success(f"Sucesso! {msg}")
+                        else: st.error(msg)
+
+                    progress_bar.empty()
+                    time.sleep(1)
+                    st.rerun()
+
+            # --- VISUALIZAÇÃO DAS CAIXAS (SE EXISTIREM NO SESSION STATE) ---
+            if st.session_state.get('study_blocks'):
+                st.markdown("---")
+                st.subheader("🔍 Análise das Caixas de Estudo")
+                
+                resultado_real = next((s for s in dados if str(s['concurso']) == str(proximo_concurso_estudo)), None)
                 if not resultado_real:
                     st.warning(f"Aguardando o resultado do concurso {proximo_concurso_estudo} para analisar as caixas de estudo.")
                 
                 for i, block in enumerate(st.session_state.study_blocks):
-                    ts = block['timestamp'].strftime("%H:%M:%S")
                     metrics_str = ", ".join(block['metricas'])
-                    expander_title = f"Caixa {i+1}: {metrics_str}"
-                    
-                    with st.expander(expander_title):
+                    with st.expander(f"Caixa {i+1}: {metrics_str}"):
                         if not resultado_real:
-                            st.info("Aguardando resultado para análise.")
-                            st.write(f"**{len(block['palpites'])} palpites gerados:**")
+                            st.write(f"**{len(block['palpites'])} palpites.**")
                             st.dataframe(pd.DataFrame({"Palpites": [str(p) for p in block['palpites']]}), hide_index=True, use_container_width=True)
-                        else:
+            else:
+                if not current_study_exists and not older_pending:
+                    st.write("Nenhuma caixa gerada.")
+                elif current_study_exists and resultado_real:
+                     # Renderiza a analise se o resultado ja saiu (recuperado do bloco acima)
                             dezenas_sorteadas = [int(x) for x in (resultado_real.get('dezenas') or resultado_real.get('listaDezenas'))]
                             st.markdown(f"**Resultado do Concurso {proximo_concurso_estudo}:**")
                             st.code(str(sorted(dezenas_sorteadas)), language=None)
@@ -2481,49 +2540,6 @@ if is_admin and tab_estudo:
                                              "Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
                                              "Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")
                                          })
-
-                            # --- NOVAS SEÇÕES ---
-                            st.markdown("---")
-                            st.subheader("🏆 Ranking de Caixas por Faixa de Acertos")
-                            
-                            df_for_ranking = df_consol.copy()
-
-                            # Dicionário para iterar e criar os rankings
-                            rankings_to_show = {
-                                "15 Pts": "🥇 Maiores Pontuadores (15 Acertos)",
-                                "14 Pts": "🥈 Maiores Pontuadores (14 Acertos)",
-                                "13 Pts": "🥉 Maiores Pontuadores (13 Acertos)",
-                                "12 Pts": "🏅 Maiores Pontuadores (12 Acertos)",
-                                "11 Pts": "🏅 Maiores Pontuadores (11 Acertos)",
-                                "10 ou -": "☠️ Mais Jogos Não Premiados (10 ou - Acertos)"
-                            }
-
-                            for col, title in rankings_to_show.items():
-                                st.markdown(f"##### {title}")
-                                df_tier = df_for_ranking[df_for_ranking[col] > 0].sort_values(by=col, ascending=False)
-                                if not df_tier.empty:
-                                    st.dataframe(df_tier[["Caixa (Métricas)", col]], hide_index=True, use_container_width=True)
-                                else:
-                                    st.info(f"Nenhuma caixa pontuou nesta faixa no período analisado.")
-
-                            st.markdown("---")
-                            st.subheader("💰 Ranking de Caixas por Desempenho Financeiro")
-                            
-                            st.markdown("##### 🤑 Maior Saldo (Lucro)")
-                            df_saldo = df_for_ranking.sort_values(by="Saldo Total (R$)", ascending=False)
-                            st.dataframe(
-                                df_saldo[["Caixa (Métricas)", "Saldo Total (R$)"]],
-                                hide_index=True, use_container_width=True,
-                                column_config={"Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")}
-                            )
-
-                            st.markdown("##### 💸 Maior Ganho Bruto (Sem descontar investimento)")
-                            df_ganho = df_for_ranking.sort_values(by="Ganho Total (R$)", ascending=False)
-                            st.dataframe(
-                                df_ganho[["Caixa (Métricas)", "Ganho Total (R$)"]],
-                                hide_index=True, use_container_width=True,
-                                column_config={"Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")}
-                            )
 
                             # --- NOVAS SEÇÕES ---
                             st.markdown("---")
