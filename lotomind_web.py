@@ -2136,40 +2136,39 @@ if is_admin and tab_estudo:
                                 st.write(f"Contém {len(jogos)} jogos gerados. Aguardando sorteio para conferência de acertos.")
         
         elif tipo_visualizacao == "Geral (Ranking Consolidado)":
-            st.info("Esta análise consolida o desempenho das caixas nos últimos 40 concursos.")
             st.info("Esta análise consolida o desempenho das caixas em **todos os concursos com estudos salvos**.")
             if st.button("📊 Gerar Ranking Consolidado"):
-                with st.spinner("Processando histórico dos últimos 40 concursos..."):
-                    # Pega os números dos últimos 40 concursos
-                    if len(dados) < 40:
-                        st.warning(f"A base de dados local tem menos de 40 concursos ({len(dados)}). A análise será feita com os dados disponíveis.")
-                    
-                    ultimos_40_concursos_numeros = [str(d['concurso']) for d in dados[:40]]
-
                 with st.spinner("Processando todo o histórico de estudos salvos..."):
                     # Busca TODOS os estudos (sem filtro de concurso)
                     todos_estudos = carregar_palpites_estudo(None)
                     
-                    # Filtra apenas os estudos que pertencem aos últimos 40 concursos
-                    estudos_filtrados = [e for e in todos_estudos if str(e.get('concurso')) in ultimos_40_concursos_numeros]
                     # O filtro foi removido. Agora usamos todos os estudos encontrados.
                     estudos_filtrados = todos_estudos
 
                     if not estudos_filtrados:
-                        st.warning("Nenhum histórico de estudos encontrado para os últimos 40 concursos.")
                         st.warning("Nenhum histórico de estudos encontrado no banco de dados.")
                     else:
                         # Dicionário para agregar: Chave=Metricas -> Valor={stats}
                         agregado = {}
                         
-                        # Cache de resultados para evitar lookup repetido, já filtrado
-                        mapa_resultados = {str(d['concurso']): d for d in dados if str(d['concurso']) in ultimos_40_concursos_numeros}
                         # Cache de resultados para evitar lookup repetido.
-                        mapa_resultados = {str(d['concurso']): d for d in dados}
+                        # Normaliza chaves para garantir compatibilidade (int/str/float)
+                        mapa_resultados = {}
+                        for d in dados:
+                            try:
+                                key_norm = str(int(d['concurso']))
+                            except:
+                                key_norm = str(d['concurso']).strip()
+                            mapa_resultados[key_norm] = d
                         
                         for item in estudos_filtrados:
-                            conc = str(item['concurso'])
-                            if conc not in mapa_resultados:
+                            conc_raw = item.get('concurso')
+                            try:
+                                conc_key = str(int(conc_raw))
+                            except:
+                                conc_key = str(conc_raw).strip()
+
+                            if conc_key not in mapa_resultados:
                                 continue # Pula se não tiver resultado (ainda não sorteado)
                             
                             # Identifica métricas (Chave)
@@ -2186,7 +2185,7 @@ if is_admin and tab_estudo:
                                 agregado[key] = {"ganho":0.0, "custo":0.0, "jogos":0}
                             
                             # Processa acertos
-                            res = mapa_resultados[conc]
+                            res = mapa_resultados[conc_key]
                             sorteados = set([int(x) for x in (res.get('dezenas') or res.get('listaDezenas'))])
                             acertos = len(set(item['numeros']) & sorteados)
                             
@@ -2327,6 +2326,7 @@ if is_admin and tab_estudo:
 
                         else:
                             st.info("Nenhum estudo com resultado apurado encontrado.")
+                            st.warning(f"Diagnóstico: Foram processados {len(estudos_filtrados)} palpites de estudo, mas nenhum correspondeu a um concurso com resultado já sorteado na base local (que possui {len(mapa_resultados)} resultados). Tente clicar em 'Atualizar Dados' na tela inicial.")
 
 # --- TELA: ADMIN (VISÍVEL APENAS PARA ADMINS) ---
 if is_admin and tab_admin:
