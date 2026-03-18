@@ -2626,15 +2626,6 @@ if is_admin and tab_estudo:
                             # Ordena por 15, 14, 13... e depois Saldo
                             df_consol = df_consol.sort_values(by=["15 Pts", "14 Pts", "13 Pts", "Saldo Total (R$)"], ascending=False)
                             
-                            st.subheader("Visão Geral Consolidada")
-                            st.dataframe(df_consol, hide_index=True, use_container_width=True,
-                                         column_config={
-                                             "Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
-                                             "Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")
-                                         })
-
-                            # --- NOVA VISÃO: QUADRO DE MEDALHAS ---
-                            st.markdown("---")
                             st.subheader("🏅 Quadro de Medalhas (Força do Box)")
                             st.caption("Classificação baseada na quantidade de acertos de cada nível.")
                             
@@ -2656,6 +2647,14 @@ if is_admin and tab_estudo:
                             )
                             st.dataframe(df_medal, hide_index=True, use_container_width=True)
 
+                            st.markdown("---")
+                            st.subheader("Visão Geral Consolidada")
+                            st.dataframe(df_consol, hide_index=True, use_container_width=True,
+                                         column_config={
+                                             "Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+                                             "Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")
+                                         })
+
                             # --- NOVAS SEÇÕES ---
                             st.markdown("---")
                             st.subheader("📊 Ranking Detalhado por Faixa")
@@ -2672,31 +2671,12 @@ if is_admin and tab_estudo:
                             }
 
                             for col, title in rankings_to_show.items():
-                                st.markdown(f"##### {title}")
-                                df_tier = df_for_ranking[df_for_ranking[col] > 0].sort_values(by=col, ascending=False)
-                                if not df_tier.empty:
-                                    st.dataframe(df_tier[["Caixa (Métricas)", col]], hide_index=True, use_container_width=True)
-                                else:
-                                    st.info(f"Nenhuma caixa pontuou nesta faixa no período analisado.")
-
-                            st.markdown("---")
-                            st.subheader("💰 Ranking de Caixas por Desempenho Financeiro")
-                            
-                            st.markdown("##### 🤑 Maior Saldo (Lucro)")
-                            df_saldo = df_for_ranking.sort_values(by="Saldo Total (R$)", ascending=False)
-                            st.dataframe(
-                                df_saldo[["Caixa (Métricas)", "Saldo Total (R$)"]],
-                                hide_index=True, use_container_width=True,
-                                column_config={"Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")}
-                            )
-
-                            st.markdown("##### 💸 Maior Ganho Bruto (Sem descontar investimento)")
-                            df_ganho = df_for_ranking.sort_values(by="Ganho Total (R$)", ascending=False)
-                            st.dataframe(
-                                df_ganho[["Caixa (Métricas)", "Ganho Total (R$)"]],
-                                hide_index=True, use_container_width=True,
-                                column_config={"Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")}
-                            )
+                                with st.expander(title):
+                                    df_tier = df_for_ranking[df_for_ranking[col] > 0].sort_values(by=col, ascending=False)
+                                    if not df_tier.empty:
+                                        st.dataframe(df_tier[["Caixa (Métricas)", col]], hide_index=True, use_container_width=True)
+                                    else:
+                                        st.info(f"Nenhuma caixa pontuou nesta faixa no período analisado.")
 
                         else:
                             st.info("Nenhum estudo com resultado apurado encontrado.")
