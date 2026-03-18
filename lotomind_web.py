@@ -484,12 +484,14 @@ def get_palpites_for_concurso(concurso_num):
         print(f"Erro ao buscar palpites para o concurso {concurso_num}: {e}")
         return []
 
-def salvar_novo_palpite(novo_palpite, user_email=None, tipo="gerado"):
+def salvar_novo_palpite(novo_palpite, user_email=None, tipo="gerado", metricas=None):
     # Se tiver Supabase, salva na nuvem
     if supabase_client and user_email:
         # Adiciona o email ao objeto antes de salvar
         novo_palpite['user_email'] = user_email
         novo_palpite['tipo'] = tipo
+        if metricas:
+            novo_palpite['metricas'] = metricas
         try:
             # Modificado para retornar o ID do novo registro
             response = supabase_client.table("palpites").insert(novo_palpite).execute()
@@ -507,6 +509,16 @@ def salvar_novo_palpite(novo_palpite, user_email=None, tipo="gerado"):
     with open(ARQUIVO_PALPITES, "w") as f:
         json.dump(palpites_locais, f, indent=4)
     return True
+
+def atualizar_tipo_palpite(palpite_id, novo_tipo):
+    """Atualiza apenas o tipo de um palpite existente no banco."""
+    if supabase_client and palpite_id:
+        try:
+            supabase_client.table("palpites").update({"tipo": novo_tipo}).eq("id", palpite_id).execute()
+            return True
+        except Exception as e:
+            print(f"Erro ao atualizar tipo: {e}")
+    return False
 
 def excluir_palpite(palpite_id, user_email=None, index_local=None):
     if supabase_client and user_email and palpite_id:
@@ -912,6 +924,7 @@ def gerar_palpite_personalizado_dialog():
     if 'dialog_palpite' not in st.session_state: st.session_state.dialog_palpite = None
     if 'dialog_msg' not in st.session_state: st.session_state.dialog_msg = None
     if 'dialog_confianca' not in st.session_state: st.session_state.dialog_confianca = 0
+    if 'dialog_palpite_id' not in st.session_state: st.session_state.dialog_palpite_id = None
 
     st.markdown(f"<h2 style='color: {ROXO_MEDIO};'>✨ Palpite Personalizado</h2>", unsafe_allow_html=True)
     st.caption("Ajuste as métricas e filtros para criar um palpite com a sua estratégia.")
@@ -973,19 +986,34 @@ def gerar_palpite_personalizado_dialog():
                 
                 if st.session_state.dialog_palpite:
                     palpites_ja_gerados.append(st.session_state.dialog_palpite)
+                
+                metrics_used = st.session_state.get('metricas_palpite_dialog', list(METRICAS_DISPONIVEIS.keys()))
 
                 jogo, confianca, msg = gerar_palpite_logica(
                     dados, ultimo_resultado,
                     numeros_incluir=st.session_state.get('incluir_numeros_dialog', []),
                     numeros_excluir=st.session_state.get('excluir_numeros_dialog', []),
                     palpites_existentes=palpites_ja_gerados,
-                    metricas_selecionadas=st.session_state.get('metricas_palpite_dialog', list(METRICAS_DISPONIVEIS.keys()))
+                    metricas_selecionadas=metrics_used
                 )
                 
                 # Salva o resultado no estado do dialog, sem fechar
                 st.session_state.dialog_palpite = jogo
                 st.session_state.dialog_msg = msg
                 st.session_state.dialog_confianca = confianca
+                
+                # --- SALVAMENTO AUTOMÁTICO (Como "gerado") ---
+                if jogo:
+                    user_email = st.session_state.get('logged_user', {}).get('email')
+                    if user_email:
+                        novo_auto = { 
+                            "concurso": proximo_concurso, 
+                            "data": ultimo_resultado.get('dataProximoConcurso'), 
+                            "numeros": jogo, 
+                            "confianca": confianca
+                        }
+                        # Salva imediatamente com tipo 'gerado' e guarda o ID
+                        st.session_state.dialog_palpite_id = salvar_novo_palpite(novo_auto, user_email, tipo="gerado", metricas=metrics_used)
 
         else:
             st.session_state.dialog_palpite = None
@@ -1027,18 +1055,22 @@ def gerar_palpite_personalizado_dialog():
                 st.session_state.msg_palpite = st.session_state.dialog_msg
                 st.session_state.confianca_atual = st.session_state.dialog_confianca
 
-                # Salva o palpite no banco de dados
-                user_email = st.session_state.get('logged_user', {}).get('email')
-                if user_email:
-                    ultimo_resultado = st.session_state['dados'][0]
-                    proximo_concurso = ultimo_resultado.get('proximoConcurso')
-                    novo_auto = { 
-                        "concurso": proximo_concurso, 
-                        "data": ultimo_resultado.get('dataProximoConcurso'), 
-                        "numeros": st.session_state.dialog_palpite, 
-                        "confianca": st.session_state.dialog_confianca 
-                    }
-                    st.session_state['palpite_id_atual'] = salvar_novo_palpite(novo_auto, user_email, tipo="personalizado")
+                # Atualiza o tipo para "personalizado" (Confirmação do usuário)
+                if st.session_state.dialog_palpite_id:
+                    atualizar_tipo_palpite(st.session_state.dialog_palpite_id, "personalizado")
+                    st.session_state['palpite_id_atual'] = st.session_state.dialog_palpite_id
+                else:
+                    # Fallback caso não tenha ID (ex: erro no salvamento automático ou modo offline)
+                    user_email = st.session_state.get('logged_user', {}).get('email')
+                    if user_email:
+                        novo_auto = { 
+                            "concurso": st.session_state['dados'][0].get('proximoConcurso'), 
+                            "data": st.session_state['dados'][0].get('dataProximoConcurso'), 
+                            "numeros": st.session_state.dialog_palpite, 
+                            "confianca": st.session_state.dialog_confianca 
+                        }
+                        metrics_used = st.session_state.get('metricas_palpite_dialog', [])
+                        st.session_state['palpite_id_atual'] = salvar_novo_palpite(novo_auto, user_email, tipo="personalizado", metricas=metrics_used)
 
                 # Fecha o dialog e atualiza a página principal
                 st.session_state.show_custom_dialog = False
@@ -1257,6 +1289,7 @@ with tab_inicio:
                 st.session_state.dialog_palpite = None
                 st.session_state.dialog_msg = None
                 st.session_state.dialog_confianca = 0
+                st.session_state.dialog_palpite_id = None
                 st.session_state.show_custom_dialog = True
             st.markdown('</div>', unsafe_allow_html=True)
         
@@ -1855,10 +1888,15 @@ if tab_static:
                 u_email = p.get('user_email')
                 u_name = users_map_static.get(u_email, u_email) if u_email else "Anônimo"
                 
+                # Métricas usadas
+                metricas_usadas = p.get('metricas')
+                str_metricas = ", ".join(metricas_usadas) if metricas_usadas and isinstance(metricas_usadas, list) else "-"
+                
                 lista_static.append({
                     "Usuário": u_name,
                     "Concurso": p.get('concurso'),
                     "Números": str(p.get('numeros')),
+                    "Métricas": str_metricas,
                     "Acertos": acertos_static
                 })
             
