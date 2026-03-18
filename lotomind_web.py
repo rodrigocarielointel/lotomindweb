@@ -2137,6 +2137,7 @@ if is_admin and tab_estudo:
         
         elif tipo_visualizacao == "Geral (Ranking Consolidado)":
             st.info("Esta análise consolida o desempenho das caixas nos últimos 40 concursos.")
+            st.info("Esta análise consolida o desempenho das caixas em **todos os concursos com estudos salvos**.")
             if st.button("📊 Gerar Ranking Consolidado"):
                 with st.spinner("Processando histórico dos últimos 40 concursos..."):
                     # Pega os números dos últimos 40 concursos
@@ -2145,20 +2146,26 @@ if is_admin and tab_estudo:
                     
                     ultimos_40_concursos_numeros = [str(d['concurso']) for d in dados[:40]]
 
+                with st.spinner("Processando todo o histórico de estudos salvos..."):
                     # Busca TODOS os estudos (sem filtro de concurso)
                     todos_estudos = carregar_palpites_estudo(None)
                     
                     # Filtra apenas os estudos que pertencem aos últimos 40 concursos
                     estudos_filtrados = [e for e in todos_estudos if str(e.get('concurso')) in ultimos_40_concursos_numeros]
+                    # O filtro foi removido. Agora usamos todos os estudos encontrados.
+                    estudos_filtrados = todos_estudos
 
                     if not estudos_filtrados:
                         st.warning("Nenhum histórico de estudos encontrado para os últimos 40 concursos.")
+                        st.warning("Nenhum histórico de estudos encontrado no banco de dados.")
                     else:
                         # Dicionário para agregar: Chave=Metricas -> Valor={stats}
                         agregado = {}
                         
                         # Cache de resultados para evitar lookup repetido, já filtrado
                         mapa_resultados = {str(d['concurso']): d for d in dados if str(d['concurso']) in ultimos_40_concursos_numeros}
+                        # Cache de resultados para evitar lookup repetido.
+                        mapa_resultados = {str(d['concurso']): d for d in dados}
                         
                         for item in estudos_filtrados:
                             conc = str(item['concurso'])
