@@ -532,15 +532,47 @@ def salvar_palpites_estudo_db(palpites_para_salvar):
     except Exception as e:
         return False, f"Erro ao salvar palpites de estudo: {e}"
 
-def carregar_palpites_estudo(concurso_num=None):
-    """Carrega palpites de estudo. Se concurso_num for fornecido, filtra por ele."""
+def salvar_resumo_estudo_db(resumos):
+    """Salva uma lista de resumos de desempenho no banco."""
+    if not supabase_client or not resumos:
+        return False, "Sem dados."
+    try:
+        supabase_client.table("estudos_resumo").insert(resumos).execute()
+        return True, "Sucesso"
+    except Exception as e:
+        return False, str(e)
+
+def excluir_estudos_por_concurso(concurso):
+    """Remove os palpites brutos de um concurso específico."""
+    if not supabase_client: return False
+    try:
+        supabase_client.table("palpites_estudo").delete().eq("concurso", concurso).execute()
+        return True
+    except: return False
+
+def carregar_resumos_estudo(concurso=None):
+    """Carrega os resumos já consolidados."""
+    if not supabase_client: return []
+    try:
+        query = supabase_client.table("estudos_resumo").select("*")
+        if concurso:
+            query = query.eq("concurso", concurso)
+        return query.order("concurso", desc=True).execute().data
+    except: return []
+
+def carregar_palpites_estudo(concurso_num=None, max_concurso=None):
+    """Carrega palpites de estudo (brutos). Se concurso_num for fornecido, filtra por ele."""
     if not supabase_client: return []
     try:
         query = supabase_client.table("palpites_estudo").select("concurso, numeros, confianca, metricas_usadas")
         if concurso_num:
             query = query.eq("concurso", concurso_num)
         
-        response = query.order("concurso", desc=True).range(0, 149999).execute()
+        if max_concurso:
+            query = query.lte("concurso", max_concurso)
+        
+        # Aumentamos o limite para tentar pegar mais registros se o servidor permitir
+        response = query.order("concurso", desc=True).limit(5000).execute()
         return response.data
     except Exception as e:
         print(f"Erro ao carregar palpites de estudo: {e}")
@@ -2029,32 +2061,93 @@ if is_admin and tab_estudo:
         tipo_visualizacao = st.radio("Modo de Visualização", ["Individual (Por Concurso)", "Geral (Ranking Consolidado)"], horizontal=True)
 
         if tipo_visualizacao == "Individual (Por Concurso)":
-            concurso_analise_input = st.number_input("Número do Concurso para Análise", value=int(ultimo_resultado['concurso']) if ultimo_resultado else 0, step=1)
+            concurso_analise_input = st.number_input("Número do Concurso para Análise", value=int(ultimo_resultado['concurso']) if ultimo_resultado else 0, step=1, format="%d")
             
             if st.button("🔎 Buscar no Banco de Dados"):
                 with st.spinner("Buscando estudos..."):
+                    # Busca primeiro nos resumos (já arquivados)
+                    resumos_db = carregar_resumos_estudo(concurso_analise_input)
+                    # Busca também nos brutos (se houver)
                     estudos_db = carregar_palpites_estudo(concurso_analise_input)
                     
-                if not estudos_db:
+                if not estudos_db and not resumos_db:
                     st.warning(f"Nenhum estudo encontrado no banco de dados para o concurso {concurso_analise_input}.")
                 else:
-                    # Agrupa os estudos por métricas usadas
-                    boxes_recuperados = defaultdict(list)
-                    for item in estudos_db:
-                        m = item.get('metricas_usadas')
-                        # Normaliza a chave para agrupar corretamente
-                        if isinstance(m, list):
-                            key = tuple(sorted(m))
-                        elif isinstance(m, str):
-                            try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
-                            except: key = (str(m),)
-                        else:
-                            key = ("Métricas não identificadas",)
-                        
-                        boxes_recuperados[key].append(item['numeros'])
-
                     # Busca resultado para conferência
                     resultado_conf = next((s for s in dados if str(s['concurso']) == str(concurso_analise_input)), None)
+                    
+                    if resultado_conf and estudos_db and not resumos_db:
+                        # Se tem resultado e tem dados brutos, mas não tem resumo -> Sugere arquivar
+                        st.info("💡 Dica: Você pode consolidar estes dados para economizar espaço e agilizar o painel.")
+                        if st.button("💾 Consolidar e Arquivar (Limpar Palpites Brutos)"):
+                            dezenas_sorteadas_consolidar = [int(x) for x in (resultado_conf.get('dezenas') or resultado_conf.get('listaDezenas'))]
+                            
+                            # Recalcula estatísticas para salvar
+                            boxes_para_salvar = defaultdict(list)
+                            for item in estudos_db:
+                                m = item.get('metricas_usadas')
+                                if isinstance(m, list): key = tuple(sorted(m))
+                                elif isinstance(m, str):
+                                    try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
+                                    except: key = (str(m),)
+                                else: key = ("Métricas não identificadas",)
+                                boxes_para_salvar[key].append(item['numeros'])
+                            
+                            lista_resumos_insert = []
+                            for metrics_tuple, jogos in boxes_para_salvar.items():
+                                metrics_str = " + ".join(metrics_tuple)
+                                hits_counter = Counter()
+                                ganho_box = 0.0
+                                for jogo in jogos:
+                                    acertos = len(set(jogo) & set(dezenas_sorteadas_consolidar))
+                                    hits_counter[acertos] += 1
+                                    if acertos >= 11:
+                                        v_premio = 0
+                                        for f in resultado_conf.get('premiacoes', []):
+                                            if str(acertos) in f.get('descricao', ''):
+                                                v_premio = f.get('valorPremio', 0)
+                                                break
+                                        if v_premio == 0:
+                                            if acertos == 11: v_premio = 6.0
+                                            elif acertos == 12: v_premio = 12.0
+                                            elif acertos == 13: v_premio = 30.0
+                                        ganho_box += v_premio
+                                
+                                custo = len(jogos) * 3.0
+                                lista_resumos_insert.append({
+                                    "concurso": int(concurso_analise_input),
+                                    "metricas": metrics_str,
+                                    "jogos_total": len(jogos),
+                                    "acertos_15": hits_counter[15],
+                                    "acertos_14": hits_counter[14],
+                                    "acertos_13": hits_counter[13],
+                                    "acertos_12": hits_counter[12],
+                                    "acertos_11": hits_counter[11],
+                                    "acertos_10_menos": sum(hits_counter[i] for i in range(11)),
+                                    "ganho_total": ganho_box,
+                                    "saldo_total": ganho_box - custo
+                                })
+                            
+                            ok_save, msg_save = salvar_resumo_estudo_db(lista_resumos_insert)
+                            if ok_save:
+                                excluir_estudos_por_concurso(concurso_analise_input)
+                                st.success("Dados consolidados e arquivados com sucesso! Recarregando...")
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error(f"Erro ao salvar resumo: {msg_save}")
+
+                    # Agrupa os estudos BRUTOS por métricas usadas (para exibição)
+                    boxes_recuperados = defaultdict(list)
+                    if estudos_db:
+                        for item in estudos_db:
+                            m = item.get('metricas_usadas')
+                            if isinstance(m, list): key = tuple(sorted(m))
+                            elif isinstance(m, str):
+                                try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
+                                except: key = (str(m),)
+                            else: key = ("Métricas não identificadas",)
+                            boxes_recuperados[key].append(item['numeros'])
                     
                     if resultado_conf:
                         dezenas_sorteadas = [int(x) for x in (resultado_conf.get('dezenas') or resultado_conf.get('listaDezenas'))]
@@ -2065,6 +2158,20 @@ if is_admin and tab_estudo:
                         st.markdown("### 🏆 Ranking de Desempenho das Caixas")
                         ranking_data = []
                         
+                        # 1. Adiciona dados dos RESUMOS (tabela nova)
+                        for r in resumos_db:
+                            ranking_data.append({
+                                "Caixa (Métricas)": r['metricas'],
+                                "15 Pts": r['acertos_15'],
+                                "14 Pts": r['acertos_14'],
+                                "13 Pts": r['acertos_13'],
+                                "12 Pts": r['acertos_12'],
+                                "11 Pts": r['acertos_11'],
+                                "Saldo (R$)": r['saldo_total'],
+                                "Origem": "Arquivado"
+                            })
+
+                        # 2. Adiciona dados dos BRUTOS (calculados na hora)
                         for metrics_tuple, jogos in boxes_recuperados.items():
                             metrics_str = " + ".join(metrics_tuple)
                             hits_counter = Counter()
@@ -2097,7 +2204,8 @@ if is_admin and tab_estudo:
                                 "13 Pts": hits_counter[13],
                                 "12 Pts": hits_counter[12],
                                 "11 Pts": hits_counter[11],
-                                "Saldo (R$)": saldo_box
+                                "Saldo (R$)": saldo_box,
+                                "Origem": "Bruto"
                             })
                         
                         if ranking_data:
@@ -2109,7 +2217,23 @@ if is_admin and tab_estudo:
                     else:
                         st.info(f"Resultado do concurso {concurso_analise_input} ainda não disponível na base local. Mostrando apenas estatísticas de volume.")
 
-                    # Exibe cada Box recuperado
+                    # Exibe Resumos Consolidados (se houver)
+                    if resumos_db:
+                        st.markdown("#### 📂 Caixas Arquivadas")
+                        for r in resumos_db:
+                            with st.expander(f"📦 Box: {r['metricas']} ({r['jogos_total']} jogos) - Saldo: R$ {r['saldo_total']:.2f}"):
+                                msg_stats = []
+                                if r['acertos_15'] > 0: msg_stats.append(f"**{r['acertos_15']}** de 15 pts")
+                                if r['acertos_14'] > 0: msg_stats.append(f"**{r['acertos_14']}** de 14 pts")
+                                if r['acertos_13'] > 0: msg_stats.append(f"**{r['acertos_13']}** de 13 pts")
+                                if r['acertos_12'] > 0: msg_stats.append(f"**{r['acertos_12']}** de 12 pts")
+                                if r['acertos_11'] > 0: msg_stats.append(f"**{r['acertos_11']}** de 11 pts")
+                                if r['acertos_10_menos'] > 0: msg_stats.append(f"**{r['acertos_10_menos']}** não premiados")
+                                
+                                st.markdown(" • ".join(msg_stats))
+
+                    # Exibe cada Box recuperado (Bruto)
+                    if boxes_recuperados: st.markdown("#### 📝 Caixas com Detalhe (Jogos)")
                     for metrics_tuple, jogos in boxes_recuperados.items():
                         metrics_str = " + ".join(metrics_tuple)
                         with st.expander(f"📦 Box: {metrics_str} ({len(jogos)} jogos)"):
@@ -2136,21 +2260,141 @@ if is_admin and tab_estudo:
                                 st.write(f"Contém {len(jogos)} jogos gerados. Aguardando sorteio para conferência de acertos.")
         
         elif tipo_visualizacao == "Geral (Ranking Consolidado)":
-            st.info("Esta análise consolida o desempenho das caixas em **todos os concursos com estudos salvos**.")
+            st.info("Esta análise consolida o desempenho das caixas em **todos os concursos com estudos salvos**. Recomenda-se usar a função 'Consolidar Histórico' para otimizar o banco de dados.")
+            
+            # --- NOVA FUNÇÃO: CONSOLIDAR TUDO (REQUISIÇÃO DO USUÁRIO) ---
+            if st.button("🧹 Consolidar Todo o Histórico (Limpar Banco)"):
+                if not supabase_client:
+                    st.error("Sem conexão com o banco.")
+                else:
+                    with st.spinner("Analisando e consolidando histórico... Isso pode levar alguns segundos."):
+                        # 1. Busca TODOS os palpites brutos (sem limite, usando paginação)
+                        try:
+                            all_raw_data = []
+                            chunk_size = 1000
+                            offset = 0
+                            while True:
+                                r = supabase_client.table("palpites_estudo").select("concurso, numeros, metricas_usadas").range(offset, offset+chunk_size-1).execute()
+                                if not r.data: break
+                                all_raw_data.extend(r.data)
+                                if len(r.data) < chunk_size: break
+                                offset += chunk_size
+                            
+                            if not all_raw_data:
+                                st.warning("Nenhum palpite bruto encontrado para consolidar.")
+                            else:
+                                # Prepara mapa de resultados para conferência
+                                mapa_res = {}
+                                for d in dados:
+                                    try: k = str(int(d['concurso']))
+                                    except: k = str(d['concurso']).strip()
+                                    mapa_res[k] = d
+
+                                # Agrupa por (concurso, metricas)
+                                agrupado = defaultdict(list)
+                                contests_to_clean = set()
+                                
+                                count_processed = 0
+                                for item in all_raw_data:
+                                    c_raw = item.get('concurso')
+                                    try: c_key = str(int(c_raw))
+                                    except: c_key = str(c_raw).strip()
+                                    
+                                    # Só consolida se tiver resultado oficial
+                                    if c_key in mapa_res:
+                                        m = item.get('metricas_usadas')
+                                        if isinstance(m, list): key_m = tuple(sorted(m))
+                                        elif isinstance(m, str):
+                                            try: key_m = tuple(sorted(json.loads(m.replace("'", '"'))))
+                                            except: key_m = (str(m),)
+                                        else: key_m = ("Métricas não identificadas",)
+                                        
+                                        agrupado[(c_key, key_m)].append(item['numeros'])
+                                        contests_to_clean.add(c_key)
+                                        count_processed += 1
+                                
+                                if not agrupado:
+                                    st.warning("Foram encontrados palpites brutos, mas nenhum corresponde a concursos com resultado sorteado (ex: estudos para concursos futuros).")
+                                else:
+                                    # Gera Resumos
+                                    lista_resumos = []
+                                    for (c_key, m_tuple), jogos in agrupado.items():
+                                        res_oficial = mapa_res[c_key]
+                                        sorteados = set([int(x) for x in (res_oficial.get('dezenas') or res_oficial.get('listaDezenas'))])
+                                        
+                                        hits = Counter()
+                                        ganho = 0.0
+                                        for jogo in jogos:
+                                            acertos = len(set(jogo) & sorteados)
+                                            hits[acertos] += 1
+                                            if acertos >= 11:
+                                                v = 0
+                                                for f in res_oficial.get('premiacoes', []):
+                                                    if str(acertos) in f.get('descricao', ''):
+                                                        v = f.get('valorPremio', 0)
+                                                        break
+                                                if v == 0:
+                                                    if acertos==11: v=6
+                                                    elif acertos==12: v=12
+                                                    elif acertos==13: v=30
+                                                ganho += v
+                                        
+                                        custo = len(jogos) * 3.0
+                                        lista_resumos.append({
+                                            "concurso": int(c_key),
+                                            "metricas": " + ".join(m_tuple),
+                                            "jogos_total": len(jogos),
+                                            "acertos_15": hits[15],
+                                            "acertos_14": hits[14],
+                                            "acertos_13": hits[13],
+                                            "acertos_12": hits[12],
+                                            "acertos_11": hits[11],
+                                            "acertos_10_menos": sum(hits[i] for i in range(11)),
+                                            "ganho_total": ganho,
+                                            "saldo_total": ganho - custo
+                                        })
+                                    
+                                    # Salva Resumos e Limpa Brutos
+                                    salvar_resumo_estudo_db(lista_resumos)
+                                    
+                                    for c_clean in contests_to_clean:
+                                        excluir_estudos_por_concurso(int(c_clean))
+                                        
+                                    st.success(f"Sucesso! {count_processed} jogos consolidados em {len(lista_resumos)} resumos. Banco de dados otimizado.")
+                                    time.sleep(2)
+                                    st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao consolidar: {e}")
+
             if st.button("📊 Gerar Ranking Consolidado"):
                 with st.spinner("Processando todo o histórico de estudos salvos..."):
-                    # Busca TODOS os estudos (sem filtro de concurso)
-                    todos_estudos = carregar_palpites_estudo(None)
+                    # 1. Carregar RESUMOS (Arquivados)
+                    todos_resumos = carregar_resumos_estudo()
                     
-                    # O filtro foi removido. Agora usamos todos os estudos encontrados.
-                    estudos_filtrados = todos_estudos
+                    # 2. Carregar BRUTOS (Sem filtro de max_concurso para evitar erros de tipo)
+                    todos_estudos_brutos = carregar_palpites_estudo(None)
 
-                    if not estudos_filtrados:
-                        st.warning("Nenhum histórico de estudos encontrado no banco de dados.")
+                    if not todos_estudos_brutos and not todos_resumos:
+                        st.warning(f"Nenhum histórico encontrado (Brutos ou Arquivados).")
                     else:
                         # Dicionário para agregar: Chave=Metricas -> Valor={stats}
                         agregado = {}
                         
+                        # --- PROCESSA RESUMOS ---
+                        for r in todos_resumos:
+                            key = r['metricas']
+                            if key not in agregado: agregado[key] = {"ganho":0.0, "custo":0.0, "jogos":0, "15":0, "14":0, "13":0, "12":0, "11":0, "10-":0}
+                            agregado[key]["jogos"] += r['jogos_total']
+                            agregado[key]["custo"] += (r['ganho_total'] - r['saldo_total']) # Reversão simples ou recalcular custo se preferir
+                            agregado[key]["ganho"] += r['ganho_total']
+                            agregado[key]["15"] += r['acertos_15']
+                            agregado[key]["14"] += r['acertos_14']
+                            agregado[key]["13"] += r['acertos_13']
+                            agregado[key]["12"] += r['acertos_12']
+                            agregado[key]["11"] += r['acertos_11']
+                            agregado[key]["10-"] += r['acertos_10_menos']
+
+                        # --- PROCESSA BRUTOS ---
                         # Cache de resultados para evitar lookup repetido.
                         # Normaliza chaves para garantir compatibilidade (int/str/float)
                         mapa_resultados = {}
@@ -2161,7 +2405,7 @@ if is_admin and tab_estudo:
                                 key_norm = str(d['concurso']).strip()
                             mapa_resultados[key_norm] = d
                         
-                        for item in estudos_filtrados:
+                        for item in todos_estudos_brutos:
                             conc_raw = item.get('concurso')
                             try:
                                 conc_key = str(int(conc_raw))
@@ -2214,7 +2458,7 @@ if is_admin and tab_estudo:
                         rank_final = []
                         for key, stats in agregado.items():
                             rank_final.append({
-                                "Caixa (Métricas)": " + ".join(key),
+                                "Caixa (Métricas)": key,
                                 "Jogos Totais": stats["jogos"],
                                 "15 Pts": stats.get("15", 0),
                                 "14 Pts": stats.get("14", 0),
@@ -2326,7 +2570,7 @@ if is_admin and tab_estudo:
 
                         else:
                             st.info("Nenhum estudo com resultado apurado encontrado.")
-                            st.warning(f"Diagnóstico: Foram processados {len(estudos_filtrados)} palpites de estudo, mas nenhum correspondeu a um concurso com resultado já sorteado na base local (que possui {len(mapa_resultados)} resultados). Tente clicar em 'Atualizar Dados' na tela inicial.")
+                            st.warning(f"Diagnóstico: Foram processados {len(todos_estudos_brutos)} palpites brutos e {len(todos_resumos)} resumos, mas nenhum correspondeu a um concurso com resultado já sorteado.")
 
 # --- TELA: ADMIN (VISÍVEL APENAS PARA ADMINS) ---
 if is_admin and tab_admin:
