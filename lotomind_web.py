@@ -599,7 +599,7 @@ def buscar_dados_manuais():
         
         dados_formatados = []
         for manual in response.data:
-            dados_formatados.append({
+            sorteio_formatado = {
                 "concurso": manual['concurso'],
                 "data": manual['data_sorteio'],
                 "dezenas": manual['dezenas'],
@@ -611,18 +611,21 @@ def buscar_dados_manuais():
                         "valorPremio": float(manual['premio_pago'])
                     }
                 ],
-                # Adiciona suporte para 14 acertos se existir na base manual
-                if manual.get('premio_14') or manual.get('ganhadores_14'):
-                    dados_formatados[-1]["premiacoes"].append({
-                        "descricao": "14 acertos",
-                        "faixa": 2,
-                        "ganhadores": manual.get('ganhadores_14', 0),
-                        "valorPremio": float(manual.get('premio_14', 0.0))
-                    })
                 "proximoConcurso": manual['prox_concurso'],
                 "dataProximoConcurso": manual['prox_data'],
                 "valorEstimadoProximoConcurso": float(manual['prox_premio'])
-            })
+            }
+            
+            # Adiciona suporte para 14 acertos se existir na base manual
+            if manual.get('premio_14') or manual.get('ganhadores_14'):
+                sorteio_formatado["premiacoes"].append({
+                    "descricao": "14 acertos",
+                    "faixa": 2,
+                    "ganhadores": manual.get('ganhadores_14', 0),
+                    "valorPremio": float(manual.get('premio_14', 0.0))
+                })
+            
+            dados_formatados.append(sorteio_formatado)
         return dados_formatados
     except Exception as e:
         print(f"Erro ao buscar dados manuais: {e}")
