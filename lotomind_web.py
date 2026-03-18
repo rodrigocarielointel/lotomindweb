@@ -33,6 +33,12 @@ header {
 footer {
     display: none !important;
 }
+.stDeployButton {
+    display: none;
+}
+[data-testid="stFooter"] {
+    display: none !important;
+}
 
 /* ===== REMOVE ESPAÇO SUPERIOR EXTRA ===== */
 div.block-container {
@@ -2647,6 +2653,26 @@ if is_admin and tab_estudo:
                                 ascending=False
                             )
                             st.dataframe(df_medal, hide_index=True, use_container_width=True)
+
+                            st.markdown("---")
+                            st.subheader("🎖️ Total de Medalhas")
+                            st.caption("Ranking pelo total acumulado de medalhas (Ouro, Prata, Bronze, Cristal e Ferro somados).")
+                            
+                            total_medals_rows = []
+                            for row in rank_final:
+                                total_cnt = row["15 Pts"] + row["14 Pts"] + row["13 Pts"] + row["12 Pts"] + row["11 Pts"]
+                                total_medals_rows.append({
+                                    "Caixa": row["Caixa (Métricas)"],
+                                    "Total Medalhas": total_cnt,
+                                    "🥇": row["15 Pts"],
+                                    "🥈": row["14 Pts"],
+                                    "🥉": row["13 Pts"],
+                                    "✨": row["12 Pts"],
+                                    "🧱": row["11 Pts"]
+                                })
+                            
+                            df_total_medals = pd.DataFrame(total_medals_rows).sort_values(by="Total Medalhas", ascending=False)
+                            st.dataframe(df_total_medals, hide_index=True, use_container_width=True)
 
                             st.markdown("---")
                             st.subheader("Visão Geral Consolidada")
