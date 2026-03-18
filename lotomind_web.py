@@ -2201,6 +2201,8 @@ if is_admin and tab_estudo:
                                     elif acertos == 12: v = 12.0
                                     elif acertos == 13: v = 30.0
                                 agregado[key]["ganho"] += v
+                            else:
+                                agregado[key]["10-"] = agregado[key].get("10-", 0) + 1
                         
                         # Monta tabela final
                         rank_final = []
@@ -2213,6 +2215,8 @@ if is_admin and tab_estudo:
                                 "13 Pts": stats.get("13", 0),
                                 "12 Pts": stats.get("12", 0),
                                 "11 Pts": stats.get("11", 0),
+                                "10 ou -": stats.get("10-", 0),
+                                "Ganho Total (R$)": stats["ganho"],
                                 "Saldo Total (R$)": stats["ganho"] - stats["custo"]
                             })
                         
@@ -2220,8 +2224,100 @@ if is_admin and tab_estudo:
                             df_consol = pd.DataFrame(rank_final)
                             # Ordena por 15, 14, 13... e depois Saldo
                             df_consol = df_consol.sort_values(by=["15 Pts", "14 Pts", "13 Pts", "Saldo Total (R$)"], ascending=False)
+                            
+                            st.subheader("Visão Geral Consolidada")
                             st.dataframe(df_consol, hide_index=True, use_container_width=True,
-                                         column_config={"Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")})
+                                         column_config={
+                                             "Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+                                             "Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")
+                                         })
+
+                            # --- NOVAS SEÇÕES ---
+                            st.markdown("---")
+                            st.subheader("🏆 Ranking de Caixas por Faixa de Acertos")
+                            
+                            df_for_ranking = df_consol.copy()
+
+                            # Dicionário para iterar e criar os rankings
+                            rankings_to_show = {
+                                "15 Pts": "🥇 Maiores Pontuadores (15 Acertos)",
+                                "14 Pts": "🥈 Maiores Pontuadores (14 Acertos)",
+                                "13 Pts": "🥉 Maiores Pontuadores (13 Acertos)",
+                                "12 Pts": "🏅 Maiores Pontuadores (12 Acertos)",
+                                "11 Pts": "🏅 Maiores Pontuadores (11 Acertos)",
+                                "10 ou -": "☠️ Mais Jogos Não Premiados (10 ou - Acertos)"
+                            }
+
+                            for col, title in rankings_to_show.items():
+                                st.markdown(f"##### {title}")
+                                df_tier = df_for_ranking[df_for_ranking[col] > 0].sort_values(by=col, ascending=False)
+                                if not df_tier.empty:
+                                    st.dataframe(df_tier[["Caixa (Métricas)", col]], hide_index=True, use_container_width=True)
+                                else:
+                                    st.info(f"Nenhuma caixa pontuou nesta faixa no período analisado.")
+
+                            st.markdown("---")
+                            st.subheader("💰 Ranking de Caixas por Desempenho Financeiro")
+                            
+                            st.markdown("##### 🤑 Maior Saldo (Lucro)")
+                            df_saldo = df_for_ranking.sort_values(by="Saldo Total (R$)", ascending=False)
+                            st.dataframe(
+                                df_saldo[["Caixa (Métricas)", "Saldo Total (R$)"]],
+                                hide_index=True, use_container_width=True,
+                                column_config={"Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")}
+                            )
+
+                            st.markdown("##### 💸 Maior Ganho Bruto (Sem descontar investimento)")
+                            df_ganho = df_for_ranking.sort_values(by="Ganho Total (R$)", ascending=False)
+                            st.dataframe(
+                                df_ganho[["Caixa (Métricas)", "Ganho Total (R$)"]],
+                                hide_index=True, use_container_width=True,
+                                column_config={"Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")}
+                            )
+
+                            # --- NOVAS SEÇÕES ---
+                            st.markdown("---")
+                            st.subheader("🏆 Ranking de Caixas por Faixa de Acertos")
+                            
+                            df_for_ranking = df_consol.copy()
+
+                            # Dicionário para iterar e criar os rankings
+                            rankings_to_show = {
+                                "15 Pts": "🥇 Maiores Pontuadores (15 Acertos)",
+                                "14 Pts": "🥈 Maiores Pontuadores (14 Acertos)",
+                                "13 Pts": "🥉 Maiores Pontuadores (13 Acertos)",
+                                "12 Pts": "🏅 Maiores Pontuadores (12 Acertos)",
+                                "11 Pts": "🏅 Maiores Pontuadores (11 Acertos)",
+                                "10 ou -": "☠️ Mais Jogos Não Premiados (10 ou - Acertos)"
+                            }
+
+                            for col, title in rankings_to_show.items():
+                                st.markdown(f"##### {title}")
+                                df_tier = df_for_ranking[df_for_ranking[col] > 0].sort_values(by=col, ascending=False)
+                                if not df_tier.empty:
+                                    st.dataframe(df_tier[["Caixa (Métricas)", col]], hide_index=True, use_container_width=True)
+                                else:
+                                    st.info(f"Nenhuma caixa pontuou nesta faixa no período analisado.")
+
+                            st.markdown("---")
+                            st.subheader("💰 Ranking de Caixas por Desempenho Financeiro")
+                            
+                            st.markdown("##### 🤑 Maior Saldo (Lucro)")
+                            df_saldo = df_for_ranking.sort_values(by="Saldo Total (R$)", ascending=False)
+                            st.dataframe(
+                                df_saldo[["Caixa (Métricas)", "Saldo Total (R$)"]],
+                                hide_index=True, use_container_width=True,
+                                column_config={"Saldo Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")}
+                            )
+
+                            st.markdown("##### 💸 Maior Ganho Bruto (Sem descontar investimento)")
+                            df_ganho = df_for_ranking.sort_values(by="Ganho Total (R$)", ascending=False)
+                            st.dataframe(
+                                df_ganho[["Caixa (Métricas)", "Ganho Total (R$)"]],
+                                hide_index=True, use_container_width=True,
+                                column_config={"Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")}
+                            )
+
                         else:
                             st.info("Nenhum estudo com resultado apurado encontrado.")
 
