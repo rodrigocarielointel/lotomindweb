@@ -1652,8 +1652,9 @@ with tab_stats:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Cálculos de Sequência
+        # Cálculos de Sequência e Atraso
         sequencias = []
+        atrasos = []
 
         for n in range(1, 26):
             # Sequência
@@ -1664,25 +1665,55 @@ with tab_stats:
                 else: break
             if curr_seq >= 2:
                 sequencias.append((n, curr_seq))
+            
+            # Atraso (Há quantos concursos não sai)
+            curr_atr = 0
+            for s in dados:
+                nums = [int(x) for x in (s.get('dezenas') or s.get('listaDezenas'))]
+                if n not in nums: curr_atr += 1
+                else: break
+            if curr_atr >= 2:
+                atrasos.append((n, curr_atr))
         
         # Ordenação
         sequencias.sort(key=lambda x: x[1], reverse=True)
+        atrasos.sort(key=lambda x: x[1], reverse=True)
 
         st.subheader("⚠️ Alertas de Padrões")
-        st.markdown("**⚡ Em Sequência**")
-        if sequencias:
-            for n, s in sequencias[:5]:
-                st.markdown(f"""
-                <div style="background-color: white; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                    <div style="display: flex; align-items: center;">
-                        <span style="font-size: 20px; margin-right: 10px;">🔥</span>
-                        <span style="font-weight: bold; color: #333; font-size: 16px;">Dezena {n:02d}</span>
+        
+        c_seq, c_atr = st.columns(2)
+        
+        with c_seq:
+            st.markdown("**⚡ Em Sequência**")
+            if sequencias:
+                for n, s in sequencias[:5]:
+                    st.markdown(f"""
+                    <div style="background-color: white; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 20px; margin-right: 10px;">🔥</span>
+                            <span style="font-weight: bold; color: #333; font-size: 16px;">Dezena {n:02d}</span>
+                        </div>
+                        <span style="background-color: {VERDE_CLARO}; color: {VERDE_ESCURO}; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">{s} seguidos</span>
                     </div>
-                    <span style="background-color: {VERDE_CLARO}; color: {VERDE_ESCURO}; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">{s} seguidos</span>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("Sem sequências longas.")
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Sem sequências.")
+
+        with c_atr:
+            st.markdown("**🐢 Mais Atrasados**")
+            if atrasos:
+                for n, a in atrasos[:5]:
+                    st.markdown(f"""
+                    <div style="background-color: white; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 20px; margin-right: 10px;">❄️</span>
+                            <span style="font-weight: bold; color: #333; font-size: 16px;">Dezena {n:02d}</span>
+                        </div>
+                        <span style="background-color: #fff3cd; color: #856404; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">{a} concursos</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Sem atrasos significativos.")
 
         # --- GRÁFICO DE FREQUÊNCIA ---
         st.markdown("<br>", unsafe_allow_html=True)
