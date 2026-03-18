@@ -2221,7 +2221,7 @@ if is_admin and tab_estudo:
         st.markdown("---")
         st.subheader("📚 Analise e Desempenho Estudos Salvos")
         
-        tipo_visualizacao = st.radio("Modo de Visualização", ["Individual (Por Concurso)", "Geral (Ranking Consolidado)"], horizontal=True, key="estudos_view_radio")
+        tipo_visualizacao = st.radio("Modo de Visualização", ["Geral (Ranking Consolidado)", "Individual (Por Concurso)"], horizontal=True, key="estudos_view_radio")
 
         if tipo_visualizacao == "Individual (Por Concurso)":
             concurso_analise_input = st.number_input("Número do Concurso para Análise", value=int(ultimo_resultado['concurso']) if ultimo_resultado else 0, step=1, format="%d")
@@ -2533,7 +2533,7 @@ if is_admin and tab_estudo:
                             st.error(f"Erro ao consolidar: {e}")
 
             if 'estudos_consolidado_result' not in st.session_state: st.session_state['estudos_consolidado_result'] = None
-            if st.button("📊 Gerar Ranking Consolidado"):
+            if st.button("📊 Recalcular Ranking Consolidado") or st.session_state['estudos_consolidado_result'] is None:
                 with st.spinner("Processando todo o histórico de estudos salvos..."):
                     # 1. Carregar RESUMOS (Arquivados)
                     todos_resumos = carregar_resumos_estudo()
