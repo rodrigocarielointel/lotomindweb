@@ -38,6 +38,7 @@ footer {
 div.block-container {
     padding-top: 1rem;
     padding-bottom: 1rem;
+    max-width: 1200px;
 }
 
 /* ===== ABAS DE NAVEGAÇÃO PRINCIPAL ===== */
@@ -2100,7 +2101,7 @@ if is_admin and tab_estudo:
             # --- VISUALIZAÇÃO DAS CAIXAS (SE EXISTIREM NO SESSION STATE) ---
             if st.session_state.get('study_blocks'):
                 st.markdown("---")
-                st.subheader("🔍 Análise das Caixas de Estudo")
+                st.subheader("🔍 Caixas de Estudos Geradas")
                 
                 resultado_real = next((s for s in dados if str(s['concurso']) == str(proximo_concurso_estudo)), None)
                 if not resultado_real:
@@ -2171,7 +2172,7 @@ if is_admin and tab_estudo:
                             st.markdown(f"<div style='border: 1px solid #ddd; border-radius: 10px; padding: 10px;'>{html_list_estudo}</div>", unsafe_allow_html=True)
 
         st.markdown("---")
-        st.subheader("📚 Recuperar e Analisar Estudos Salvos")
+        st.subheader("📚 Analise e Desempenho Estudos Salvos")
         
         tipo_visualizacao = st.radio("Modo de Visualização", ["Individual (Por Concurso)", "Geral (Ranking Consolidado)"], horizontal=True)
 
@@ -2371,7 +2372,7 @@ if is_admin and tab_estudo:
                                 st.write(f"Contém {len(jogos)} jogos gerados. Aguardando sorteio para conferência de acertos.")
         
         elif tipo_visualizacao == "Geral (Ranking Consolidado)":
-            st.info("Esta análise consolida o desempenho das caixas em **todos os concursos com estudos salvos**. Recomenda-se usar a função 'Consolidar Histórico' para otimizar o banco de dados.")
+            st.info("Esta análise consolida o desempenho das caixas em **todos os concursos com estudos salvos**. Para visualizar as análises clique em **Gerar Ranking Consolidado.**")
             
             # --- NOVA FUNÇÃO: CONSOLIDAR TUDO (REQUISIÇÃO DO USUÁRIO) ---
             if st.button("🧹 Consolidar Todo o Histórico (Limpar Banco)"):
