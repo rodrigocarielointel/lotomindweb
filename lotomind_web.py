@@ -2343,7 +2343,6 @@ if is_admin and tab_estudo:
                                 if r['acertos_13'] > 0: msg_stats.append(f"**{r['acertos_13']}** de 13 pts")
                                 if r['acertos_12'] > 0: msg_stats.append(f"**{r['acertos_12']}** de 12 pts")
                                 if r['acertos_11'] > 0: msg_stats.append(f"**{r['acertos_11']}** de 11 pts")
-                                if r['acertos_10_menos'] > 0: msg_stats.append(f"**{r['acertos_10_menos']}** não premiados")
                                 
                                 st.markdown(" • ".join(msg_stats))
 
@@ -2363,9 +2362,6 @@ if is_admin and tab_estudo:
                                 for k in [15, 14, 13, 12, 11]:
                                     count = hits_counter.get(k, 0)
                                     if count > 0: msg_stats.append(f"**{count}** jogos com **{k}** acertos")
-                                
-                                count_low = sum(hits_counter.get(i, 0) for i in range(11))
-                                if count_low > 0: msg_stats.append(f"**{count_low}** jogos com **10 ou menos** acertos")
                                 
                                 st.markdown(" • ".join(msg_stats))
                                 
@@ -2621,7 +2617,6 @@ if is_admin and tab_estudo:
                                 "13 Pts": stats.get("13", 0),
                                 "12 Pts": stats.get("12", 0),
                                 "11 Pts": stats.get("11", 0),
-                                "10 ou -": stats.get("10-", 0),
                                 "Ganho Total (R$)": stats["ganho"],
                                 "Saldo Total (R$)": stats["ganho"] - stats["custo"]
                             })
@@ -2638,20 +2633,42 @@ if is_admin and tab_estudo:
                                              "Ganho Total (R$)": st.column_config.NumberColumn(format="R$ %.2f")
                                          })
 
+                            # --- NOVA VISÃO: QUADRO DE MEDALHAS ---
+                            st.markdown("---")
+                            st.subheader("🏅 Quadro de Medalhas (Força do Box)")
+                            st.caption("Classificação baseada na quantidade de acertos de cada nível.")
+                            
+                            medal_data = []
+                            for row in rank_final:
+                                medal_data.append({
+                                    "Caixa": row["Caixa (Métricas)"],
+                                    "🥇 Ouro (15)": row["15 Pts"],
+                                    "🥈 Prata (14)": row["14 Pts"],
+                                    "🥉 Bronze (13)": row["13 Pts"],
+                                    "✨ Cristal (12)": row["12 Pts"],
+                                    "🧱 Ferro (11)": row["11 Pts"],
+                                })
+                            
+                            df_medal = pd.DataFrame(medal_data)
+                            df_medal = df_medal.sort_values(
+                                by=["🥇 Ouro (15)", "🥈 Prata (14)", "🥉 Bronze (13)", "✨ Cristal (12)", "🧱 Ferro (11)"], 
+                                ascending=False
+                            )
+                            st.dataframe(df_medal, hide_index=True, use_container_width=True)
+
                             # --- NOVAS SEÇÕES ---
                             st.markdown("---")
-                            st.subheader("🏆 Ranking de Caixas por Faixa de Acertos")
+                            st.subheader("📊 Ranking Detalhado por Faixa")
                             
                             df_for_ranking = df_consol.copy()
 
                             # Dicionário para iterar e criar os rankings
                             rankings_to_show = {
-                                "15 Pts": "🥇 Maiores Pontuadores (15 Acertos)",
-                                "14 Pts": "🥈 Maiores Pontuadores (14 Acertos)",
-                                "13 Pts": "🥉 Maiores Pontuadores (13 Acertos)",
-                                "12 Pts": "🏅 Maiores Pontuadores (12 Acertos)",
-                                "11 Pts": "🏅 Maiores Pontuadores (11 Acertos)",
-                                "10 ou -": "☠️ Mais Jogos Não Premiados (10 ou - Acertos)"
+                                "15 Pts": "🥇 Nível Ouro (15 Acertos)",
+                                "14 Pts": "🥈 Nível Prata (14 Acertos)",
+                                "13 Pts": "🥉 Nível Bronze (13 Acertos)",
+                                "12 Pts": "✨ Nível Cristal (12 Acertos)",
+                                "11 Pts": "🧱 Nível Ferro (11 Acertos)"
                             }
 
                             for col, title in rankings_to_show.items():
