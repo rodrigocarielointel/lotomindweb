@@ -2663,12 +2663,7 @@ if is_admin and tab_estudo:
                                 total_cnt = row["15 Pts"] + row["14 Pts"] + row["13 Pts"] + row["12 Pts"] + row["11 Pts"]
                                 total_medals_rows.append({
                                     "Caixa": row["Caixa (Métricas)"],
-                                    "Total Medalhas": total_cnt,
-                                    "🥇": row["15 Pts"],
-                                    "🥈": row["14 Pts"],
-                                    "🥉": row["13 Pts"],
-                                    "✨": row["12 Pts"],
-                                    "🧱": row["11 Pts"]
+                                    "Total Medalhas": total_cnt
                                 })
                             
                             df_total_medals = pd.DataFrame(total_medals_rows).sort_values(by="Total Medalhas", ascending=False)
