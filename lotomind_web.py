@@ -2417,6 +2417,13 @@ if is_admin and tab_estudo:
                                                     if str(acertos) in f.get('descricao', ''):
                                                         v = f.get('valorPremio', 0)
                                                         break
+                                        # Fallback de segurança: Se v=0 mas deveria ter prêmio (ex: 14 pts), tenta reconfirmar
+                                        if v == 0 and acertos >= 11:
+                                            for f in res_oficial.get('premiacoes', []):
+                                                if str(acertos) in f.get('descricao', ''):
+                                                    v = f.get('valorPremio', 0)
+                                                    if v > 0: break
+
                                                 if v == 0:
                                                     if acertos==11: v=7.0
                                                     elif acertos==12: v=14.0
@@ -2464,21 +2471,6 @@ if is_admin and tab_estudo:
                         # Dicionário para agregar: Chave=Metricas -> Valor={stats}
                         agregado = {}
                         
-                        # --- PROCESSA RESUMOS ---
-                        for r in todos_resumos:
-                            key = r['metricas']
-                            if key not in agregado: agregado[key] = {"ganho":0.0, "custo":0.0, "jogos":0, "15":0, "14":0, "13":0, "12":0, "11":0, "10-":0}
-                            agregado[key]["jogos"] += r['jogos_total']
-                            agregado[key]["custo"] += (r['ganho_total'] - r['saldo_total']) # Reversão simples ou recalcular custo se preferir
-                            agregado[key]["ganho"] += r['ganho_total']
-                            agregado[key]["15"] += r['acertos_15']
-                            agregado[key]["14"] += r['acertos_14']
-                            agregado[key]["13"] += r['acertos_13']
-                            agregado[key]["12"] += r['acertos_12']
-                            agregado[key]["11"] += r['acertos_11']
-                            agregado[key]["10-"] += r['acertos_10_menos']
-
-                        # --- PROCESSA BRUTOS ---
                         # Cache de resultados para evitar lookup repetido.
                         # Normaliza chaves para garantir compatibilidade (int/str/float)
                         mapa_resultados = {}
@@ -2488,7 +2480,50 @@ if is_admin and tab_estudo:
                             except:
                                 key_norm = str(d['concurso']).strip()
                             mapa_resultados[key_norm] = d
-                        
+
+                        # --- PROCESSA RESUMOS ---
+                        for r in todos_resumos:
+                            key = r['metricas']
+                            if key not in agregado: agregado[key] = {"ganho":0.0, "custo":0.0, "jogos":0, "15":0, "14":0, "13":0, "12":0, "11":0, "10-":0}
+                            
+                            # RECALCULO DINÂMICO DE GANHOS (Corrige valores antigos/zerados usando dados atuais)
+                            conc_r_key = str(r['concurso'])
+                            ganho_recalc = 0.0
+                            custo_recalc = r['jogos_total'] * 3.00
+
+                            if conc_r_key in mapa_resultados:
+                                res_r = mapa_resultados[conc_r_key]
+                                
+                                # Busca valores de prêmios do concurso
+                                v15, v14, v13, v12, v11 = 0.0, 0.0, 35.0, 14.0, 7.0
+                                for f in res_r.get('premiacoes', []):
+                                    desc = f.get('descricao', '')
+                                    val = float(f.get('valorPremio', 0.0))
+                                    if '15' in desc: v15 = val
+                                    elif '14' in desc: v14 = val
+                                    elif '13' in desc: v13 = val
+                                    elif '12' in desc: v12 = val
+                                    elif '11' in desc: v11 = val
+                                
+                                ganho_recalc += (r['acertos_15'] * v15)
+                                ganho_recalc += (r['acertos_14'] * v14)
+                                ganho_recalc += (r['acertos_13'] * v13)
+                                ganho_recalc += (r['acertos_12'] * v12)
+                                ganho_recalc += (r['acertos_11'] * v11)
+                            else:
+                                ganho_recalc = r['ganho_total'] # Fallback se não tiver resultado carregado
+
+                            agregado[key]["jogos"] += r['jogos_total']
+                            agregado[key]["custo"] += custo_recalc
+                            agregado[key]["ganho"] += ganho_recalc
+                            agregado[key]["15"] += r['acertos_15']
+                            agregado[key]["14"] += r['acertos_14']
+                            agregado[key]["13"] += r['acertos_13']
+                            agregado[key]["12"] += r['acertos_12']
+                            agregado[key]["11"] += r['acertos_11']
+                            agregado[key]["10-"] += r['acertos_10_menos']
+
+                        # --- PROCESSA BRUTOS ---
                         for item in todos_estudos_brutos:
                             conc_raw = item.get('concurso')
                             try:
@@ -2530,6 +2565,12 @@ if is_admin and tab_estudo:
                                     if acertos_str in f.get('descricao', ''):
                                         v = f.get('valorPremio', 0)
                                         break
+                                # Fallback robusto se v=0
+                                if v == 0:
+                                    for f in res.get('premiacoes', []):
+                                        if str(acertos) in f.get('descricao', ''):
+                                            v = f.get('valorPremio', 0)
+                                            if v > 0: break
                                 if v == 0:
                                     if acertos == 11: v = 7.0
                                     elif acertos == 12: v = 14.0
