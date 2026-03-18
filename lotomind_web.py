@@ -1374,6 +1374,10 @@ with tab_inicio:
 </div>
 <div style="width: 1px; background-color: #ddd;"></div>
 <div style="text-align: center;">
+<span style="font-size: 12px; color: #666; text-transform: uppercase;">Ganhadores (14)</span><br>
+<span style="font-size: 20px; font-weight: bold; color: {ROXO_MEDIO};">{ganhadores_14}</span>
+</div>
+<div style="text-align: center;">
 <span style="font-size: 12px; color: #666; text-transform: uppercase;">Prêmio (14)</span><br>
 <span style="font-size: 18px; font-weight: bold; color: {ROXO_MEDIO};">R$ {valor_premio_14:,.2f}</span>
 </div>
@@ -1420,9 +1424,9 @@ with tab_palpites:
                                     break
                             # Fallback valores fixos aproximados
                             if premio_encontrado == 0:
-                                if acertos == 11: premio_encontrado = 6.0
-                                elif acertos == 12: premio_encontrado = 12.0
-                                elif acertos == 13: premio_encontrado = 30.0
+                                if acertos == 11: premio_encontrado = 7.0
+                                elif acertos == 12: premio_encontrado = 14.0
+                                elif acertos == 13: premio_encontrado = 35.0
                             
                             total_ganho += premio_encontrado
                         break
@@ -1736,9 +1740,9 @@ with tab_premios:
                                 break
                         # Fallback valores fixos
                         if premio == 0:
-                            if acertos == 11: premio = 6.0
-                            elif acertos == 12: premio = 12.0
-                            elif acertos == 13: premio = 30.0
+                            if acertos == 11: premio = 7.0
+                            elif acertos == 12: premio = 14.0
+                            elif acertos == 13: premio = 35.0
                         
                         username = "Usuário Lotomind"
                             
@@ -1964,7 +1968,7 @@ if is_admin and tab_estudo:
                                                 for f in res_conf.get('premiacoes', []):
                                                     if str(ac) in f.get('descricao', ''):
                                                         v = f.get('valorPremio', 0); break
-                                                if v==0: v = {11:6,12:12,13:30}.get(ac,0)
+                                                if v==0: v = {11:7.0,12:14.0,13:35.0}.get(ac,0)
                                                 g += v
                                         custo = len(jogos) * 3.0
                                         lista_resumos.append({
@@ -2098,9 +2102,9 @@ if is_admin and tab_estudo:
                                             premio_encontrado = faixa.get('valorPremio', 0)
                                             break
                                     if premio_encontrado == 0: # Fallback
-                                        if acertos == 11: premio_encontrado = 6.0
-                                        elif acertos == 12: premio_encontrado = 12.0
-                                        elif acertos == 13: premio_encontrado = 30.0
+                                        if acertos == 11: premio_encontrado = 7.0
+                                        elif acertos == 12: premio_encontrado = 14.0
+                                        elif acertos == 13: premio_encontrado = 35.0
                                     total_ganho_bloco += premio_encontrado
 
                             # --- Novas Estatísticas de Análise ---
@@ -2188,9 +2192,9 @@ if is_admin and tab_estudo:
                                                 v_premio = f.get('valorPremio', 0)
                                                 break
                                         if v_premio == 0:
-                                            if acertos == 11: v_premio = 6.0
-                                            elif acertos == 12: v_premio = 12.0
-                                            elif acertos == 13: v_premio = 30.0
+                                            if acertos == 11: v_premio = 7.0
+                                            elif acertos == 12: v_premio = 14.0
+                                            elif acertos == 13: v_premio = 35.0
                                         ganho_box += v_premio
                                 
                                 custo = len(jogos) * 3.0
@@ -2269,9 +2273,9 @@ if is_admin and tab_estudo:
                                             v_premio = f.get('valorPremio', 0)
                                             break
                                     if v_premio == 0: # Fallback
-                                        if acertos == 11: v_premio = 6.0
-                                        elif acertos == 12: v_premio = 12.0
-                                        elif acertos == 13: v_premio = 30.0
+                                        if acertos == 11: v_premio = 7.0
+                                        elif acertos == 12: v_premio = 14.0
+                                        elif acertos == 13: v_premio = 35.0
                                     ganho_box += v_premio
                             
                             investimento_box = len(jogos) * 3.00
@@ -2414,9 +2418,9 @@ if is_admin and tab_estudo:
                                                         v = f.get('valorPremio', 0)
                                                         break
                                                 if v == 0:
-                                                    if acertos==11: v=6
-                                                    elif acertos==12: v=12
-                                                    elif acertos==13: v=30
+                                                    if acertos==11: v=7.0
+                                                    elif acertos==12: v=14.0
+                                                    elif acertos==13: v=35.0
                                                 ganho += v
                                         
                                         custo = len(jogos) * 3.0
@@ -2527,9 +2531,9 @@ if is_admin and tab_estudo:
                                         v = f.get('valorPremio', 0)
                                         break
                                 if v == 0:
-                                    if acertos == 11: v = 6.0
-                                    elif acertos == 12: v = 12.0
-                                    elif acertos == 13: v = 30.0
+                                    if acertos == 11: v = 7.0
+                                    elif acertos == 12: v = 14.0
+                                    elif acertos == 13: v = 35.0
                                 agregado[key]["ganho"] += v
                             else:
                                 agregado[key]["10-"] = agregado[key].get("10-", 0) + 1
@@ -2686,6 +2690,44 @@ if is_admin and tab_admin:
                         time.sleep(1)
                         st.rerun()
                     else: st.error(msg)
+            
+            # --- CORREÇÃO RÁPIDA DE DADOS (SOLICITAÇÃO) ---
+            st.markdown("---")
+            st.subheader("🛠️ Ferramentas de Correção")
+            if st.button("Atualizar Concursos 3637 e 3638 (Valores 14 pts)"):
+                concursos_alvo = [3637, 3638]
+                sucesso = 0
+                for c_num in concursos_alvo:
+                    # Encontrar dados atuais (API ou Cache) para preservar dezenas e outros dados
+                    dados_atuais = next((d for d in st.session_state['dados'] if d['concurso'] == c_num), None)
+                    if dados_atuais:
+                        # Prepara payload completo para salvar como manual
+                        p15 = next((p for p in dados_atuais['premiacoes'] if '15' in p['descricao']), {})
+                        
+                        payload = {
+                            "concurso": c_num,
+                            "data_sorteio": dados_atuais.get('data'),
+                            "dezenas": [int(x) for x in (dados_atuais.get('dezenas') or dados_atuais.get('listaDezenas'))],
+                            "ganhadores": p15.get('ganhadores', 0),
+                            "premio_pago": p15.get('valorPremio', 0.0),
+                            "prox_concurso": dados_atuais.get('proximoConcurso'),
+                            "prox_data": dados_atuais.get('dataProximoConcurso'),
+                            "prox_premio": dados_atuais.get('valorEstimadoProximoConcurso'),
+                            # Novos Valores Solicitados
+                            "ganhadores_14": 276,
+                            "premio_14": 1594.23
+                        }
+                        ok, msg = salvar_sorteio_manual_db(payload)
+                        if ok: sucesso += 1
+                        else: st.error(f"Erro {c_num}: {msg}")
+                    else:
+                        st.warning(f"Concurso {c_num} não encontrado nos dados carregados para atualização.")
+                
+                if sucesso > 0:
+                    st.success(f"{sucesso} concursos atualizados com sucesso! Recarregue a página.")
+                    st.session_state['dados'] = carregar_dados()
+                    time.sleep(2)
+                    st.rerun()
 
 # Rodapé
 st.markdown("---")
