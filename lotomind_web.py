@@ -2690,44 +2690,44 @@ if is_admin and tab_admin:
                         time.sleep(1)
                         st.rerun()
                     else: st.error(msg)
+
+        # --- CORREÇÃO RÁPIDA DE DADOS (SOLICITAÇÃO) ---
+        st.markdown("---")
+        st.subheader("🛠️ Ferramentas de Correção")
+        if st.button("Atualizar Concursos 3637 e 3638 (Valores 14 pts)"):
+            concursos_alvo = [3637, 3638]
+            sucesso = 0
+            for c_num in concursos_alvo:
+                # Encontrar dados atuais (API ou Cache) para preservar dezenas e outros dados
+                dados_atuais = next((d for d in st.session_state['dados'] if d['concurso'] == c_num), None)
+                if dados_atuais:
+                    # Prepara payload completo para salvar como manual
+                    p15 = next((p for p in dados_atuais['premiacoes'] if '15' in p['descricao']), {})
+                    
+                    payload = {
+                        "concurso": c_num,
+                        "data_sorteio": dados_atuais.get('data'),
+                        "dezenas": [int(x) for x in (dados_atuais.get('dezenas') or dados_atuais.get('listaDezenas'))],
+                        "ganhadores": p15.get('ganhadores', 0),
+                        "premio_pago": p15.get('valorPremio', 0.0),
+                        "prox_concurso": dados_atuais.get('proximoConcurso'),
+                        "prox_data": dados_atuais.get('dataProximoConcurso'),
+                        "prox_premio": dados_atuais.get('valorEstimadoProximoConcurso'),
+                        # Novos Valores Solicitados
+                        "ganhadores_14": 276,
+                        "premio_14": 1594.23
+                    }
+                    ok, msg = salvar_sorteio_manual_db(payload)
+                    if ok: sucesso += 1
+                    else: st.error(f"Erro {c_num}: {msg}")
+                else:
+                    st.warning(f"Concurso {c_num} não encontrado nos dados carregados para atualização.")
             
-            # --- CORREÇÃO RÁPIDA DE DADOS (SOLICITAÇÃO) ---
-            st.markdown("---")
-            st.subheader("🛠️ Ferramentas de Correção")
-            if st.button("Atualizar Concursos 3637 e 3638 (Valores 14 pts)"):
-                concursos_alvo = [3637, 3638]
-                sucesso = 0
-                for c_num in concursos_alvo:
-                    # Encontrar dados atuais (API ou Cache) para preservar dezenas e outros dados
-                    dados_atuais = next((d for d in st.session_state['dados'] if d['concurso'] == c_num), None)
-                    if dados_atuais:
-                        # Prepara payload completo para salvar como manual
-                        p15 = next((p for p in dados_atuais['premiacoes'] if '15' in p['descricao']), {})
-                        
-                        payload = {
-                            "concurso": c_num,
-                            "data_sorteio": dados_atuais.get('data'),
-                            "dezenas": [int(x) for x in (dados_atuais.get('dezenas') or dados_atuais.get('listaDezenas'))],
-                            "ganhadores": p15.get('ganhadores', 0),
-                            "premio_pago": p15.get('valorPremio', 0.0),
-                            "prox_concurso": dados_atuais.get('proximoConcurso'),
-                            "prox_data": dados_atuais.get('dataProximoConcurso'),
-                            "prox_premio": dados_atuais.get('valorEstimadoProximoConcurso'),
-                            # Novos Valores Solicitados
-                            "ganhadores_14": 276,
-                            "premio_14": 1594.23
-                        }
-                        ok, msg = salvar_sorteio_manual_db(payload)
-                        if ok: sucesso += 1
-                        else: st.error(f"Erro {c_num}: {msg}")
-                    else:
-                        st.warning(f"Concurso {c_num} não encontrado nos dados carregados para atualização.")
-                
-                if sucesso > 0:
-                    st.success(f"{sucesso} concursos atualizados com sucesso! Recarregue a página.")
-                    st.session_state['dados'] = carregar_dados()
-                    time.sleep(2)
-                    st.rerun()
+            if sucesso > 0:
+                st.success(f"{sucesso} concursos atualizados com sucesso! Recarregue a página.")
+                st.session_state['dados'] = carregar_dados()
+                time.sleep(2)
+                st.rerun()
 
 # Rodapé
 st.markdown("---")
