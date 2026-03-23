@@ -2613,12 +2613,14 @@ if is_admin and tab_estudo:
                             # Identifica métricas (Chave)
                             m = item.get('metricas_usadas')
                             if isinstance(m, list):
-                                key = tuple(sorted(m))
+                                key_tuple = tuple(sorted(m))
                             elif isinstance(m, str):
-                                try: key = tuple(sorted(json.loads(m.replace("'", '"')))) 
-                                except: key = (str(m),)
+                                try: key_tuple = tuple(sorted(json.loads(m.replace("'", '"')))) 
+                                except: key_tuple = (str(m),)
                             else:
-                                key = ("Métricas não identificadas",)
+                                key_tuple = ("Métricas não identificadas",)
+                            
+                            key = " + ".join(key_tuple)
                             
                             if key not in agregado:
                                 agregado[key] = {"ganho":0.0, "custo":0.0, "jogos":0}
@@ -2718,6 +2720,50 @@ if is_admin and tab_estudo:
                             
                             df_total_medals = pd.DataFrame(total_medals_rows).sort_values(by="Total Medalhas", ascending=False)
                             st.dataframe(df_total_medals, hide_index=True, use_container_width=True)
+
+                            st.markdown("---")
+                            st.subheader("🔬 Análise Quântica (Força da Caixa)")
+                            st.caption("Esta análise pondera a qualidade das medalhas para calcular uma pontuação de 'força'. Uma medalha de ouro (15 pts) vale mais que uma de prata (14 pts), e assim por diante.")
+
+                            # 1. Definir pesos para a qualidade das medalhas
+                            pesos_medalhas = {
+                                "15 Pts": 25,
+                                "14 Pts": 10,
+                                "13 Pts": 5,
+                                "12 Pts": 2,
+                                "11 Pts": 1
+                            }
+
+                            # 2. Calcular a pontuação de força para cada caixa
+                            forca_data = []
+                            for row in rank_final_data:
+                                score = (
+                                    row.get("15 Pts", 0) * pesos_medalhas["15 Pts"] +
+                                    row.get("14 Pts", 0) * pesos_medalhas["14 Pts"] +
+                                    row.get("13 Pts", 0) * pesos_medalhas["13 Pts"] +
+                                    row.get("12 Pts", 0) * pesos_medalhas["12 Pts"] +
+                                    row.get("11 Pts", 0) * pesos_medalhas["11 Pts"]
+                                )
+                                forca_data.append({
+                                    "Caixa": row["Caixa (Métricas)"],
+                                    "Pontuação de Força": score
+                                })
+
+                            if forca_data:
+                                # 3. Normalizar a pontuação para uma porcentagem e ordenar
+                                df_forca = pd.DataFrame(forca_data)
+                                max_score = df_forca["Pontuação de Força"].max()
+                                df_forca["Força (%)"] = (df_forca["Pontuação de Força"] / max_score * 100) if max_score > 0 else 0
+                                df_forca = df_forca.sort_values(by="Pontuação de Força", ascending=False)
+
+                                # 4. Exibir a visualização com uma barra de progresso
+                                st.dataframe(df_forca,
+                                    column_config={
+                                        "Força (%)": st.column_config.ProgressColumn("Força (%)", format="%.2f%%", min_value=0, max_value=100),
+                                        "Caixa": "Caixa (Métricas)"
+                                    },
+                                    hide_index=True, use_container_width=True
+                                )
 
                             st.markdown("---")
                             st.subheader("Visão Geral Consolidada")
